@@ -33,8 +33,8 @@ cat >"$fakes/claude" <<'EOF'
 printf '%s|%s\n' "${AGENT_ISOLATION_DISABLE:-}" "$*" >>"$FAKE_LOG"
 case "${FAKE_CLAUDE:-ok}" in
     ok)
-        printf '\n```\nGenerated 2026-01-01 by fake-model\n\nReal risks here:\n• fake risk\n'
-        printf 'Isolation options for this project:\n1. sbx\n```\n'
+        printf '\n```\nGenerated 2026-01-01 by fake-model\n\nRisks by severity:\n🔴 HIGH  fake risk\n'
+        printf 'What to do:\n1. Type /exit\n```\n'
         ;;
     long) printf 'Generated 2026-01-01 by fake-model\n'; for i in $(seq 1 50); do echo "line $i"; done ;;
     garbage) echo "Sorry, I cannot help with that." ;;
@@ -114,8 +114,8 @@ assert_eq "$(wc -c <"$FAKE_LOG" | tr -d ' ')" 0 "main run must not call claude"
 
 setup "host, fresh analysis"
 write_risks "Generated today by test
-Real risks here:
-• FRESH_MARKER"
+Risks by severity:
+🔴 HIGH  FRESH_MARKER"
 run_hook
 assert_contains "$(msg)" "FRESH_MARKER" "cached analysis shown"
 assert_not_contains "$(msg)" "🔄" "no refresh line"
@@ -129,8 +129,17 @@ run_hook
 assert_contains "$(msg)" "STALE_MARKER" "old analysis still shown"
 assert_contains "$(msg)" "running in the background" "background line"
 
+setup "host, analysis in old format"
+write_risks "Generated today by test
+Real risks here:
+• OLD_FORMAT_MARKER"
+run_hook
+assert_contains "$(msg)" "OLD_FORMAT_MARKER" "old analysis still shown"
+assert_contains "$(msg)" "running in the background" "regenerated at once"
+
 setup "host, custom max age"
-write_risks "Generated recently"
+write_risks "Generated recently
+Risks by severity:"
 touch -d '2 hours ago' "$risks"
 extra_env=(AGENT_ISOLATION_MAX_AGE_MINUTES=60)
 run_hook
@@ -142,6 +151,7 @@ run_hook
 assert_json
 assert_contains "$(msg)" "after your first message" "fallback line"
 assert_contains "$(ctx)" "Daily task" "fallback context"
+assert_contains "$(ctx)" "starting with 🔴" "fallback presentation"
 assert_not_contains "$(msg)" "running in the background" "no background line"
 
 setup "host, tracked analysis"
@@ -170,7 +180,8 @@ run_hook
 assert_eq "$code" 0 "exit"; assert_silent
 
 setup "sbx, fresh analysis"
-write_risks "Generated today"
+write_risks "Generated today
+Risks by severity:"
 extra_env=(SANDBOX_NAME=test)
 run_hook
 assert_eq "$code" 0 "exit"; assert_silent
@@ -222,6 +233,12 @@ assert_eq "$(head -n 1 "$risks")" "Generated 2026-01-01 by fake-model" "fences a
 assert_not_contains "$(cat "$risks")" '```' "no code fence"
 assert_contains "$err" "Show it to the developer" "instruction for Claude"
 assert_contains "$err" "fake risk" "analysis in message"
+assert_contains "$err" "starting with 🔴" "grouped by severity"
+assert_contains "$err" "What to do" "steps requested"
+assert_not_contains "$err" "verbatim" "not pasted as is"
+assert_contains "$err" "always in English" "message language"
+assert_contains "$err" "Recommended:" "recommendation requested"
+assert_contains "$(tail -n 1 "$FAKE_LOG")" "Risks by severity:" "severity format requested"
 log="$(cat "$FAKE_LOG")"
 assert_contains "$log" "1|" "nested claude gets AGENT_ISOLATION_DISABLE=1"
 assert_contains "$log" "--tools Read,Glob,Grep" "read only tools"
@@ -262,7 +279,8 @@ assert_eq "$([ $((SECONDS - start)) -lt 4 ] && echo fast)" fast "killed by timeo
 assert_eq "$([ -e "$risks" ] && echo exists)" "" "no file written"
 
 setup "analyse, fresh analysis"
-write_risks "Generated today"
+write_risks "Generated today
+Risks by severity:"
 run_hook analyse
 assert_eq "$code" 0 "exit"; assert_silent
 assert_eq "$(wc -c <"$FAKE_LOG" | tr -d ' ')" 0 "claude not called"
