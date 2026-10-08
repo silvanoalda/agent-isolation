@@ -9,8 +9,9 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 - `plugins/agent-isolation/hooks/hooks.json`: registers the SessionStart hook.
 - `plugins/agent-isolation/hooks/isolation-check.sh`: the hook. On the host (`SANDBOX_NAME`
   unset, not in a container) it prints the warning; inside sbx it installs DDEV when `.ddev/`
-  exists; in both cases it asks Claude to refresh `.claude/agent-isolation.local.txt` when that
-  file is missing or older than a day. In a Dev Container or other container it exits silently.
+  exists; in both cases it regenerates `.claude/agent-isolation.local.txt` with a headless read only
+  `claude -p` when that file is missing or older than a day (falling back to asking Claude in
+  the session if that fails). In a Dev Container or other container it exits silently.
 - `plugins/agent-isolation/launcher.sh`: optional shell function, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`.
 
@@ -27,7 +28,8 @@ CLAUDE_PROJECT_DIR="$t/proj" CLAUDE_PLUGIN_ROOT="$PWD/plugins/agent-isolation" \
 CLAUDE_CONFIG_DIR="$t/cfg" bash plugins/agent-isolation/hooks/isolation-check.sh | jq .
 ```
 
-Vary the case with `SANDBOX_NAME=test` (sbx), `AGENT_ISOLATION_DISABLE=1`, or by writing
+The analysis needs a logged in `claude`, so drop `CLAUDE_CONFIG_DIR` to exercise it.
+Vary the case with `AGENT_ISOLATION_ANALYSIS_TIMEOUT=1` (fallback), `SANDBOX_NAME=test` (sbx), `AGENT_ISOLATION_DISABLE=1`, or by writing
 `$t/proj/.claude/agent-isolation.local.txt` and aging it with `touch -d '2 days ago'`.
 The host branch stays silent when run inside a container (`/.dockerenv`).
 

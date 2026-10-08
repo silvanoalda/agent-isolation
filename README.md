@@ -7,7 +7,7 @@ A Claude Code plugin (and single-plugin marketplace) that reminds you, for every
 At session start it:
 
 - **On the host**: shows a warning listing the risks for this project and ranking the isolation options (sbx, Dev Containers, bubblewrap) with how to start each one.
-- **Once a day** (on the host and inside sbx): asks Claude to re-analyse the current project and rewrite that list, so it follows project changes and newer models. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
+- **Once a day** (on the host and inside sbx): runs a headless, read only Claude (`claude -p` with only Read, Glob and Grep, `.env` files and keys denied) that re-analyses the current project and rewrites that list before the warning is shown, so it follows project changes and newer models. Startup takes about 10 to 30 seconds longer that time. If it fails or times out, Claude does it in the session after your first message instead. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
 - **Inside sbx**: installs DDEV from GitHub releases when the project has a `.ddev/` directory and `ddev` is missing.
 - **Inside a Dev Container or other container**: stays silent.
 
@@ -38,6 +38,8 @@ The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to skip 
 |---|---|---|
 | `AGENT_ISOLATION_DISABLE` | unset | `1` disables the hook |
 | `AGENT_ISOLATION_MAX_AGE_MINUTES` | `1440` | Age after which Claude refreshes the analysis |
+| `AGENT_ISOLATION_MODEL` | `sonnet` | Model used to generate the analysis |
+| `AGENT_ISOLATION_ANALYSIS_TIMEOUT` | `150` | Seconds before the analysis falls back to the session |
 | `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher prompt |
 | `DDEV_INSTALL_DIR` | `/usr/local/bin` | Where DDEV is installed inside sbx |
 

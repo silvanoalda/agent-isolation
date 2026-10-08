@@ -49,9 +49,38 @@ json_escape_file() {
         | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk '{printf "%s\\n", $0}'
 }
 
+analysis_task="the agent isolation risk analysis shown to developers who start Claude Code directly on the host instead of in an isolated environment. Inspect the current project for concrete risks of running an AI agent on the host without isolation: secret names in .env.example, .env.* templates and config files (never open .env, ~/.ssh, cloud credentials or other secret files, only infer from names and templates), deploy targets and production access (CI configs, deploy scripts, Envoy, Ansible, Terraform, Kubernetes, Makefile), Docker, Compose and DDEV usage (a Docker socket is root-equivalent on the host), MCP servers (.mcp.json), package manager install scripts, external services reached (databases, LDAP, SMTP, APIs). Then compare sbx, Dev Containers and bubblewrap (Claude Code /sandbox) for this project and recommend one, saying why and how to start it. Format: plain terminal text, no Markdown, at most 90 columns and 25 lines, first line Generated YYYY-MM-DD by <your model id>, then two sections titled Real risks here: and Isolation options for this project:, using • bullets for risks and a 1. 2. 3. ranking for options."
+
+# Generate the analysis now with a headless, read-only Claude, so it is ready before the banner
+# is shown (the in-session instruction below only runs after the user's first prompt).
+# AGENT_ISOLATION_DISABLE stops the nested session from running this hook again.
+generate_risks() {
+    command -v claude >/dev/null 2>&1 || return 1
+    local timeout_cmd="" out
+    if command -v timeout >/dev/null 2>&1; then timeout_cmd=timeout
+    elif command -v gtimeout >/dev/null 2>&1; then timeout_cmd=gtimeout; fi
+    [ -n "$timeout_cmd" ] && timeout_cmd="$timeout_cmd ${AGENT_ISOLATION_ANALYSIS_TIMEOUT:-150}"
+    out="$(mktemp)" || return 1
+    (cd "$project_dir" && AGENT_ISOLATION_DISABLE=1 $timeout_cmd claude -p \
+        "Write $analysis_task Print only the analysis, nothing before or after it." \
+        --model "${AGENT_ISOLATION_MODEL:-sonnet}" \
+        --tools Read,Glob,Grep \
+        --disallowedTools 'Read(**/.env)' 'Read(**/.env.local)' 'Read(**/.env.production)' \
+        'Read(**/*.pem)' 'Read(**/*.key)' \
+        --strict-mcp-config --disable-slash-commands --no-session-persistence \
+        </dev/null >"$out" 2>/dev/null)
+    # Drop blank lines and stray code fences around the text, then check it looks like the analysis.
+    sed -e '/^```/d' "$out" | tr -d '\r' | sed -e '/./,$!d' | head -n 30 >"$out.clean"
+    if head -n 1 "$out.clean" | grep -q '^Generated '; then
+        mkdir -p "$(dirname "$risks_file")" && mv "$out.clean" "$risks_file" && rm -f "$out" && return 0
+    fi
+    rm -f "$out" "$out.clean"
+    return 1
+}
+
 refresh_context=""
-if ! risks_fresh; then
-    refresh_context=" Daily task, do it first and briefly, then continue with the user's request: refresh the agent isolation risk analysis shown to developers who start Claude Code directly on the host instead of in an isolated environment. Inspect the current project for concrete risks of running an AI agent on the host without isolation: secret names in .env.example, .env.* templates and config files (never open .env, ~/.ssh, cloud credentials or other secret files, only infer from names and templates), deploy targets and production access (CI configs, deploy scripts, Envoy, Ansible, Terraform, Kubernetes, Makefile), Docker, Compose and DDEV usage (a Docker socket is root-equivalent on the host), MCP servers (.mcp.json), package manager install scripts, external services reached (databases, LDAP, SMTP, APIs). Then compare sbx, Dev Containers and bubblewrap (Claude Code /sandbox) for this project and recommend one, saying why and how to start it. Overwrite $risks_rel with the Write tool: plain terminal text, no Markdown, at most 90 columns and 25 lines, first line Generated YYYY-MM-DD by <your model id>, then two sections titled Real risks here: and Isolation options for this project:, using • bullets for risks and a 1. 2. 3. ranking for options. Mention the refresh in one line of your reply."
+if ! risks_fresh && [ -z "$risks_tracked" ] && ! generate_risks; then
+    refresh_context=" Daily task, do it first and briefly, then continue with the user's request: refresh $analysis_task Overwrite $risks_rel with the Write tool. Mention the refresh in one line of your reply."
 fi
 
 in_other_container() {
@@ -96,7 +125,7 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
         msg+="  3. bubblewrap (Claude Code /sandbox): lightweight, confines Bash only, and Docker\n"
         msg+="     commands must run outside it. Install bubblewrap and socat, then /sandbox\n"
     fi
-    [ -n "$refresh_context" ] && msg+="\n🔄  Analysis missing or older than a day: Claude refreshes it from the current project.\n"
+    [ -n "$refresh_context" ] && msg+="\n🔄  Analysis could not be generated now: Claude refreshes it after your first message.\n"
     msg+="\n👉  Exit now (/exit) and restart isolated, e.g. from the project directory: sbx run claude\n"
     if command -v sbx >/dev/null 2>&1 && [ -f "$launcher" ]; then
         msg+="\n💡  Get asked automatically next time: add this line to ~/.bashrc or ~/.zshrc\n\n"
