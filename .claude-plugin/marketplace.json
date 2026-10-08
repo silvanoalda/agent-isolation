@@ -1,0 +1,16 @@
+{
+  "name": "agent-isolation",
+  "owner": {
+    "name": "Silvano Aldà"
+  },
+  "metadata": {
+    "description": "What your coding agent can reach on your host, and how isolating it protects you. For Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "agent-isolation",
+      "source": "./plugins/agent-isolation",
+      "description": "What your coding agent can reach on your host, and how isolating it protects you. For Claude Code."
+    }
+  ]
+}

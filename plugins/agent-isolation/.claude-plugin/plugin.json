@@ -1,0 +1,9 @@
+{
+  "name": "agent-isolation",
+  "version": "0.1.0",
+  "description": "What your coding agent can reach on your host, and how isolating it protects you. For Claude Code.",
+  "author": {
+    "name": "Silvano Aldà"
+  },
+  "keywords": ["security", "isolation", "sandbox", "sbx", "devcontainer", "bubblewrap"]
+}
