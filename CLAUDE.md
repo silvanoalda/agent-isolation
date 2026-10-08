@@ -6,17 +6,19 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 
 - `.claude-plugin/marketplace.json`: the marketplace, pointing at `plugins/agent-isolation`.
 - `plugins/agent-isolation/.claude-plugin/plugin.json`: plugin manifest (name, version).
-- `plugins/agent-isolation/hooks/hooks.json`: registers the SessionStart hook twice: the main run and
-  a fast `notice` run that shows a wait message while the analysis is generated.
+- `plugins/agent-isolation/hooks/hooks.json`: registers the SessionStart hook twice: the main run,
+  which shows the warning at once, and an `analyse` run (`asyncRewake`) that regenerates the
+  analysis in the background and wakes Claude to show it.
 - `plugins/agent-isolation/hooks/isolation-check.sh`: the hook. On the host (`SANDBOX_NAME`
   unset, not in a container) it prints the warning; inside sbx it installs DDEV when `.ddev/`
-  exists; in both cases it regenerates `.claude/agent-isolation.local.txt` with a headless read only
-  `claude -p` when that file is missing or older than a day (falling back to asking Claude in
-  the session if that fails). In a Dev Container or other container it exits silently.
+  exists; in both cases the `analyse` run regenerates `.claude/agent-isolation.local.txt` with a headless
+  read only `claude -p` when that file is missing or older than a day (falling back to asking
+  Claude in the session if that fails). In a Dev Container or other container it exits silently.
 - `plugins/agent-isolation/launcher.sh`: optional shell function, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`.
 
-The hook must always exit 0 and print either nothing or one valid JSON object.
+The main run must always exit 0 and print either nothing or one valid JSON object. The `analyse`
+run prints nothing on stdout and exits 2 with a message for Claude on stderr, or 0 to stay quiet.
 
 ## Testing the hook
 
@@ -29,7 +31,8 @@ CLAUDE_PROJECT_DIR="$t/proj" CLAUDE_PLUGIN_ROOT="$PWD/plugins/agent-isolation" \
 CLAUDE_CONFIG_DIR="$t/cfg" bash plugins/agent-isolation/hooks/isolation-check.sh | jq .
 ```
 
-The analysis needs a logged in `claude`, so drop `CLAUDE_CONFIG_DIR` to exercise it.
+Pass `analyse` as first argument to test the background run. It needs a logged in `claude`, so
+drop `CLAUDE_CONFIG_DIR` to exercise it.
 Vary the case with `AGENT_ISOLATION_ANALYSIS_TIMEOUT=1` (fallback), `SANDBOX_NAME=test` (sbx), `AGENT_ISOLATION_DISABLE=1`, or by writing
 `$t/proj/.claude/agent-isolation.local.txt` and aging it with `touch -d '2 days ago'`.
 The host branch stays silent when run inside a container (`/.dockerenv`).

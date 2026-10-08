@@ -6,12 +6,13 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/isolation-check.sh\"",
-            "timeout": 180
+            "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/isolation-check.sh\" notice",
-            "timeout": 10
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/isolation-check.sh\" analyse",
+            "timeout": 180,
+            "asyncRewake": true
           }
         ]
       }
