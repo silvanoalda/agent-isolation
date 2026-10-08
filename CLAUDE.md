@@ -13,7 +13,9 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
   unset, not in a container) it prints the warning; inside sbx it installs DDEV when `.ddev/`
   exists; in both cases the `analyse` run regenerates `.claude/agent-isolation.local.txt` with a headless
   read only `claude -p` when that file is missing or older than a day (falling back to asking
-  Claude in the session if that fails). In a Dev Container or other container it exits silently.
+  Claude in the session if that fails). The `analyse` run also fetches the marketplace clone once a
+  day and caches a newer plugin `version` in `~/.claude/agent-isolation/latest-version`; the main
+  run shows the update commands from that cache. In a Dev Container or other container it exits silently.
 - `plugins/agent-isolation/launcher.sh`: optional shell function, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`.
 
@@ -50,7 +52,7 @@ The host branch stays silent when run inside a container (`/.dockerenv`).
 ## Publishing
 
 1. Bump `version` in `plugins/agent-isolation/.claude-plugin/plugin.json` (users only get
-   updates when it changes).
+   updates, and the hook's update notice, when it changes).
 2. Validate, commit, push.
 3. Users run `claude plugin marketplace update agent-isolation` and
    `claude plugin update agent-isolation@agent-isolation`.

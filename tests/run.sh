@@ -21,7 +21,7 @@ current=""
 tools="$work/tools"
 mkdir -p "$tools"
 for t in bash git jq sed awk grep find head tail tr cat cut cksum mkdir rmdir mktemp mv rm cp \
-    cmp dirname basename readlink timeout sleep touch uname env wc ls ln chmod; do
+    cmp dirname basename readlink timeout sleep touch uname env wc ls ln chmod sort; do
     p="$(command -v "$t")" || { echo "missing tool: $t"; exit 1; }
     ln -s "$p" "$tools/$t"
 done
@@ -317,6 +317,111 @@ touch -d '11 minutes ago' "$lock"
 run_hook analyse
 assert_eq "$code" 2 "stale lock ignored"
 assert_eq "$([ -e "$lock" ] && echo exists)" "" "lock released"
+
+# --- update check -----------------------------------------------------------------------------
+
+installed="$(jq -r .version "$plugin/.claude-plugin/plugin.json")"
+
+# make_marketplace <version>: marketplace clone, as Claude Code keeps it, whose origin has <version>.
+make_marketplace() {
+    src="$t/mkt-src"; bare="$t/mkt.git"; clone="$t/cfg/plugins/marketplaces/agent-isolation"
+    mkdir -p "$src/plugins/agent-isolation/.claude-plugin"
+    git -C "$src" init -q
+    release "$1"
+    git clone -q --bare "$src" "$bare"
+    git clone -q "$bare" "$clone"
+}
+# release <version>: publish <version> on the origin of the clone.
+release() {
+    printf '{\n  "name": "agent-isolation",\n  "version": "%s"\n}\n' "$1" \
+        >"$src/plugins/agent-isolation/.claude-plugin/plugin.json"
+    git -C "$src" add -A && git -C "$src" -c user.email=t@t -c user.name=t commit -q -m "$1"
+    [ -d "$bare" ] && git -C "$src" push -q "$bare" HEAD:refs/heads/master HEAD:refs/heads/main 2>/dev/null
+}
+fresh_risks() { write_risks "Generated today
+Risks by severity:"; }
+latest() { cat "$t/cfg/agent-isolation/latest-version" 2>/dev/null; }
+
+setup "update, newer version"
+fresh_risks
+make_marketplace 0.0.1
+release 99.0.0
+run_hook analyse
+assert_eq "$code" 0 "exit"; assert_silent
+assert_eq "$(latest)" 99.0.0 "newer version cached"
+assert_contains "$(cat "$clone/plugins/agent-isolation/.claude-plugin/plugin.json")" 0.0.1 "clone untouched"
+run_hook
+assert_json
+assert_contains "$(msg)" "agent-isolation 99.0.0 is available (installed $installed)" "banner"
+assert_contains "$(msg)" "claude plugin update agent-isolation@agent-isolation" "update command"
+assert_contains "$(msg)" "Enable auto-update" "auto-update hint"
+assert_contains "$(ctx)" "offer in one line to update it" "Claude offers the update"
+assert_contains "$(ctx)" "Run it only if the developer agrees" "needs consent"
+
+setup "update, throttled to once a day"
+fresh_risks
+make_marketplace 99.0.0
+run_hook analyse
+release 100.0.0
+run_hook analyse
+assert_eq "$(latest)" 99.0.0 "no second check within a day"
+touch -d '2 days ago' "$t/cfg/agent-isolation/update-check"
+run_hook analyse
+assert_eq "$(latest)" 100.0.0 "checked again after a day"
+
+setup "update, already latest"
+fresh_risks
+make_marketplace "$installed"
+mkdir -p "$t/cfg/agent-isolation" && echo 99.0.0 >"$t/cfg/agent-isolation/latest-version"
+run_hook analyse
+assert_eq "$(latest)" "" "cache removed when up to date"
+run_hook
+assert_not_contains "$(msg)" "is available" "no notice"
+
+setup "update, installed newer than cache"
+mkdir -p "$t/cfg/agent-isolation" && echo 0.0.1 >"$t/cfg/agent-isolation/latest-version"
+run_hook
+assert_not_contains "$(msg)" "is available" "no notice after updating"
+
+setup "update, invalid cached version"
+mkdir -p "$t/cfg/agent-isolation" && printf '9.9"}\n' >"$t/cfg/agent-isolation/latest-version"
+run_hook
+assert_json
+assert_not_contains "$(msg)" "is available" "ignored"
+
+setup "update, disabled"
+fresh_risks
+make_marketplace 0.0.1
+release 99.0.0
+extra_env=(AGENT_ISOLATION_UPDATE_CHECK=off)
+run_hook analyse
+assert_eq "$code" 0 "exit"; assert_silent
+assert_eq "$(latest)" "" "no check"
+
+setup "update, no marketplace clone"
+fresh_risks
+run_hook analyse
+assert_eq "$code" 0 "exit"; assert_silent
+assert_eq "$(latest)" "" "nothing cached"
+
+setup "update, marketplace name from the install path"
+fresh_risks
+cached="$t/cfg/plugins/cache/my-mkt/agent-isolation/$installed"
+mkdir -p "$cached" && cp -r "$plugin/." "$cached"
+mkdir -p "$t/cfg/agent-isolation" && echo 99.0.0 >"$t/cfg/agent-isolation/latest-version"
+extra_env=(CLAUDE_PLUGIN_ROOT="$cached")
+run_hook
+assert_contains "$(msg)" "claude plugin marketplace update my-mkt" "marketplace name"
+assert_contains "$(ctx)" "agent-isolation@my-mkt" "plugin reference"
+
+setup "update, sbx"
+fresh_risks
+mkdir -p "$t/cfg/agent-isolation" && echo 99.0.0 >"$t/cfg/agent-isolation/latest-version"
+extra_env=(SANDBOX_NAME=test)
+run_hook
+assert_eq "$code" 0 "exit"; assert_json
+assert_contains "$(msg)" "99.0.0 is available" "notice in sbx"
+assert_eq "$(ctx | cut -c1-2)" "A " "context without leading space"
 
 # --- launcher ---------------------------------------------------------------------------------
 

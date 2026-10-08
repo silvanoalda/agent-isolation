@@ -10,17 +10,31 @@ At session start it:
 - **Once a day** (on the host and inside sbx): runs, in the background, a headless read only Claude (`claude -p` with only Read, Glob and Grep, `.env` files and keys denied) that re-analyses the current project and rewrites that list, so it follows project changes and newer models. The warning shows at once with the previous analysis (or a generic one at the first start), and Claude shows the new analysis in the session as soon as it is ready, usually within a minute. If generation fails, Claude does it in the session after your first message instead. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
 - **Inside sbx**: installs DDEV from GitHub releases when the project has a `.ddev/` directory and `ddev` is missing.
 - **Inside a Dev Container or other container**: stays silent.
+- **Once a day** (on the host and inside sbx): checks the marketplace for a newer version of the plugin. When there is one, the next start shows the update commands and Claude offers to run them.
 
 ## Install
 
 ```bash
-claude plugin marketplace add /path/to/agent-isolation
+claude plugin marketplace add silvanoalda/agent-isolation
 claude plugin install agent-isolation@agent-isolation
 ```
 
-Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Code. After `git pull` in this directory, run `claude plugin marketplace update agent-isolation` and `claude plugin update agent-isolation@agent-isolation`.
+Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Code.
 
 The plugin must also be installed inside sbx for the daily refresh and the DDEV install to run there.
+
+## Updates
+
+Claude Code does not update plugins from third-party marketplaces unless you turn it on. Recommended: in a session, open `/plugin`, go to **Marketplaces**, select **agent-isolation** and choose **Enable auto-update**.
+
+Without auto-update, the hook checks the marketplace once a day in the background and, when a newer version exists, shows at the next start:
+
+```bash
+claude plugin marketplace update agent-isolation
+claude plugin update agent-isolation@agent-isolation
+```
+
+Then run `/reload-plugins` (or restart Claude Code). A marketplace added from a local path is not checked: run `git pull` in that directory, then the two commands above.
 
 ## Launcher (optional)
 
@@ -41,6 +55,7 @@ The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to skip 
 | `AGENT_ISOLATION_MODEL` | `sonnet` | Model used to generate the analysis |
 | `AGENT_ISOLATION_ANALYSIS_TIMEOUT` | `150` | Seconds before the background analysis gives up and falls back to the session |
 | `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher prompt |
+| `AGENT_ISOLATION_UPDATE_CHECK` | unset | `off` disables the daily check for a newer plugin version |
 | `DDEV_INSTALL_DIR` | `/usr/local/bin` | Where DDEV is installed inside sbx |
 
 ## License
