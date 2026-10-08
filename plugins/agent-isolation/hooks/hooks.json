@@ -6,8 +6,12 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/isolation-check.sh\"",
-            "timeout": 180,
-            "statusMessage": "agent-isolation: analysing project risks (once a day, up to a minute), please wait…"
+            "timeout": 180
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/isolation-check.sh\" notice",
+            "timeout": 10
           }
         ]
       }

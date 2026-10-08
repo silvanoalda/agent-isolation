@@ -21,8 +21,10 @@ risks_rel=".claude/agent-isolation.local.txt"
 risks_file="$project_dir/$risks_rel"
 risks_max_age="${AGENT_ISOLATION_MAX_AGE_MINUTES:-1440}"
 
-# Keep the cache out of git without touching the project's .gitignore.
-exclude_file="$(git -C "$project_dir" rev-parse --git-path info/exclude 2>/dev/null)"
+# Keep the cache out of git without touching the project's .gitignore. Only the main run does
+# it, so the parallel notice run cannot append the same line twice.
+exclude_file=""
+[ "${1:-}" = "notice" ] || exclude_file="$(git -C "$project_dir" rev-parse --git-path info/exclude 2>/dev/null)"
 if [ -n "$exclude_file" ]; then
     case "$exclude_file" in /*) ;; *) exclude_file="$project_dir/$exclude_file" ;; esac
     if ! grep -qxF 'agent-isolation.local.txt' "$exclude_file" 2>/dev/null; then
@@ -50,6 +52,21 @@ json_escape_file() {
 }
 
 analysis_task="the agent isolation risk analysis shown to developers who start Claude Code directly on the host instead of in an isolated environment. Inspect the current project for concrete risks of running an AI agent on the host without isolation: secret names in .env.example, .env.* templates and config files (never open .env, ~/.ssh, cloud credentials or other secret files, only infer from names and templates), deploy targets and production access (CI configs, deploy scripts, Envoy, Ansible, Terraform, Kubernetes, Makefile), Docker, Compose and DDEV usage (a Docker socket is root-equivalent on the host), MCP servers (.mcp.json), package manager install scripts, external services reached (databases, LDAP, SMTP, APIs). Then compare sbx, Dev Containers and bubblewrap (Claude Code /sandbox) for this project and recommend one, saying why and how to start it. Format: plain terminal text, no Markdown, at most 90 columns and 25 lines, first line Generated YYYY-MM-DD by <your model id>, then two sections titled Real risks here: and Isolation options for this project:, using • bullets for risks and a 1. 2. 3. ranking for options."
+
+in_other_container() {
+    [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "${REMOTE_CONTAINERS:-}" ] \
+        || [ -n "${CODESPACES:-}" ] || [ -n "${DEVCONTAINER:-}" ]
+}
+
+# Second, fast hook registered next to the main one (hooks run in parallel): shows a wait
+# message while the main hook generates the analysis, since a hook cannot report progress.
+if [ "${1:-}" = "notice" ]; then
+    { [ -z "${SANDBOX_NAME:-}" ] && in_other_container; } && exit 0
+    if ! risks_fresh && [ -z "$risks_tracked" ] && command -v claude >/dev/null 2>&1; then
+        emit "⏳ agent-isolation: analysing this project's risks (once a day, up to a minute). Please wait for the result before typing…" ""
+    fi
+    exit 0
+fi
 
 # Generate the analysis now with a headless, read-only Claude, so it is ready before the banner
 # is shown (the in-session instruction below only runs after the user's first prompt).
@@ -82,11 +99,6 @@ refresh_context=""
 if ! risks_fresh && [ -z "$risks_tracked" ] && ! generate_risks; then
     refresh_context=" Daily task, do it first and briefly, then continue with the user's request: refresh $analysis_task Overwrite $risks_rel with the Write tool. Mention the refresh in one line of your reply."
 fi
-
-in_other_container() {
-    [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "${REMOTE_CONTAINERS:-}" ] \
-        || [ -n "${CODESPACES:-}" ] || [ -n "${DEVCONTAINER:-}" ]
-}
 
 if [ -z "${SANDBOX_NAME:-}" ]; then
     # A Dev Container or other container already isolates the session.

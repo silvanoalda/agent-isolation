@@ -6,7 +6,8 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 
 - `.claude-plugin/marketplace.json`: the marketplace, pointing at `plugins/agent-isolation`.
 - `plugins/agent-isolation/.claude-plugin/plugin.json`: plugin manifest (name, version).
-- `plugins/agent-isolation/hooks/hooks.json`: registers the SessionStart hook.
+- `plugins/agent-isolation/hooks/hooks.json`: registers the SessionStart hook twice: the main run and
+  a fast `notice` run that shows a wait message while the analysis is generated.
 - `plugins/agent-isolation/hooks/isolation-check.sh`: the hook. On the host (`SANDBOX_NAME`
   unset, not in a container) it prints the warning; inside sbx it installs DDEV when `.ddev/`
   exists; in both cases it regenerates `.claude/agent-isolation.local.txt` with a headless read only
