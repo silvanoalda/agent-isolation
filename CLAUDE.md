@@ -16,11 +16,13 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
   Claude in the session if that fails). The `analyse` run also fetches the marketplace clone once a
   day and caches a newer plugin `version` in `~/.claude/agent-isolation/latest-version`; the main
   run shows the update commands from that cache. In a Dev Container or other container it exits silently.
-- `plugins/agent-isolation/launcher.sh`: optional shell function, copied by the hook to
-  `~/.claude/agent-isolation/launcher.sh`.
-- `kit/spec.yaml`: sbx mixin kit that installs the plugin in a sandbox (`sbx run claude --kit`
-  on creation, `sbx kit add` on an existing one), since sandboxes do not share the host's
-  `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.
+- `plugins/agent-isolation/launcher.sh`: optional shell functions, copied by the hook to
+  `~/.claude/agent-isolation/launcher.sh`. `sbx run claude` starts the sandbox detached,
+  installs the plugin there with `sbx exec` (once per sandbox id, marker in
+  `~/.claude/agent-isolation/sandboxes/`), then attaches; `claude` offers to use sbx.
+- `kit/spec.yaml`: sbx mixin kit for users without the launcher, installing the plugin in a
+  sandbox (`sbx run claude --kit` on creation, `sbx kit add` on an existing one), since
+  sandboxes do not share the host's `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.
 
 The main run must always exit 0 and print either nothing or one valid JSON object. The `analyse`
 run prints nothing on stdout and exits 2 with a message for Claude on stderr, or 0 to stay quiet.
@@ -36,7 +38,8 @@ bash tests/run.sh
 `tests/run.sh` covers the hook (main and `analyse` runs) and the launcher with fake `claude`
 and `sbx` binaries, so it needs no login or network. Add a case there for every behaviour
 change. CI (`.github/workflows/test.yml`) runs the same three steps on every push.
-Not covered: the DDEV install in sbx and the interactive launcher prompt.
+Not covered: the DDEV install in sbx, the interactive launcher prompt and the kit
+(check it with `sbx kit validate kit`).
 
 For a manual run against the real `claude`:
 

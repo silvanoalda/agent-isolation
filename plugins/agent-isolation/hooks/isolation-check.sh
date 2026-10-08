@@ -216,7 +216,7 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     [ -n "$update_line" ] && msg+="\n$update_line"
     msg+="\n👉  Exit now (/exit) and restart isolated, e.g. from the project directory: sbx run claude\n"
     if command -v sbx >/dev/null 2>&1 && [ -f "$launcher" ]; then
-        msg+="\n💡  Get asked automatically next time: add this line to ~/.bashrc or ~/.zshrc\n\n"
+        msg+="\n💡  Get asked next time, and the plugin installed in each sbx sandbox:\n    add this line to ~/.bashrc or ~/.zshrc\n\n"
         msg+="        source \\\"$launcher\\\"\n"
     fi
     msg+="$rule\n"

@@ -23,7 +23,11 @@ Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Co
 
 ### Inside sbx
 
-Each sbx sandbox has its own Claude Code configuration, so the plugin installed on the host is not there. It must be installed in the sandbox for the daily refresh and the DDEV install to run. The `kit/` directory is an sbx kit that does it. sbx only accepts kits from Docker Hub by default, so allow this repository once (keep any other entries you already have, see `sbx settings get kit.allowedSources`):
+Each sbx sandbox has its own Claude Code configuration, so the plugin installed on the host is not there. It must be installed in the sandbox for the daily refresh and the DDEV install to run.
+
+The [launcher](#launcher) does it for you: with it sourced, `sbx run claude` installs the plugin in the project's sandbox the first time (new or existing sandbox), then starts the session. Nothing else to do.
+
+Without the launcher, the `kit/` directory is an sbx kit that does the same. sbx only accepts kits from Docker Hub by default, so allow this repository once (keep any other entries you already have, see `sbx settings get kit.allowedSources`):
 
 ```bash
 sbx settings set kit.allowedSources '["docker.io/","github.com/silvanoalda/agent-isolation"]'
@@ -35,17 +39,10 @@ Then, for a new sandbox, from the project directory:
 sbx run claude --kit 'git+https://github.com/silvanoalda/agent-isolation.git#dir=kit'
 ```
 
-`--kit` only applies when the sandbox is created. For a sandbox that already exists (its name is in `sbx ls`), add the kit once, then start it as usual with `sbx run claude`:
+`--kit` only applies when the sandbox is created. For a sandbox that already exists (its name is in `sbx ls`), add the kit once:
 
 ```bash
 sbx kit add claude-<project> 'git+https://github.com/silvanoalda/agent-isolation.git#dir=kit'
-```
-
-Kits are an experimental sbx feature. If they are not available, install the plugin by hand inside the sandbox:
-
-```bash
-sbx exec claude-<project> -- claude plugin marketplace add https://github.com/silvanoalda/agent-isolation.git
-sbx exec claude-<project> -- claude plugin install agent-isolation@agent-isolation
 ```
 
 ## Updates
@@ -61,15 +58,20 @@ claude plugin update agent-isolation@agent-isolation
 
 Then run `/reload-plugins` (or restart Claude Code). A marketplace added from a local path is not checked: run `git pull` in that directory, then the two commands above.
 
-## Launcher (optional)
+## Launcher
 
-To be asked whether to use `sbx run claude` each time you start `claude` without arguments in a git repository, add this to `~/.bashrc` or `~/.zshrc` on the host:
+Recommended when you use sbx. Add this to `~/.bashrc` or `~/.zshrc` on the host:
 
 ```bash
 source ~/.claude/agent-isolation/launcher.sh
 ```
 
-The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to skip the prompt.
+Then:
+
+- `sbx run claude` installs the plugin in the project's sandbox when it is not there yet (a few seconds, once per sandbox, also when a sandbox is recreated), then starts the session as usual. With other arguments, `sbx` runs unchanged.
+- `claude` without arguments in a git repository asks whether to start it with `sbx run claude` instead of on the host.
+
+The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off.
 
 ## Settings (environment variables)
 
@@ -79,7 +81,7 @@ The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to skip 
 | `AGENT_ISOLATION_MAX_AGE_MINUTES` | `1440` | Age after which Claude refreshes the analysis |
 | `AGENT_ISOLATION_MODEL` | `sonnet` | Model used to generate the analysis |
 | `AGENT_ISOLATION_ANALYSIS_TIMEOUT` | `150` | Seconds before the background analysis gives up and falls back to the session |
-| `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher prompt |
+| `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher (prompt and plugin install in sbx) |
 | `AGENT_ISOLATION_UPDATE_CHECK` | unset | `off` disables the daily check for a newer plugin version |
 | `DDEV_INSTALL_DIR` | `/usr/local/bin` | Where DDEV is installed inside sbx |
 

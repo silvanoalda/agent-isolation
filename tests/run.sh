@@ -42,7 +42,18 @@ case "${FAKE_CLAUDE:-ok}" in
     slow) sleep 5; echo "Generated too late" ;;
 esac
 EOF
-printf '#!/usr/bin/env bash\nexit 0\n' >"$fakes/sbx"
+cat >"$fakes/sbx" <<'EOF'
+#!/usr/bin/env bash
+[ -n "${FAKE_SBX_LOG:-}" ] && printf '%s\n' "$*" >>"$FAKE_SBX_LOG"
+case "$*" in
+    "run claude -d") printf 'progress line\n%s\n' "${FAKE_SBX_ID-4d390e74-13f0}" ;;
+    "ls --json")
+        printf '{"sandboxes":[{"name":"claude-other","id":"0000"},{"name":"claude-proj","id":"%s"}]}\n' \
+            "${FAKE_SBX_ID-4d390e74-13f0}" ;;
+    exec*) exit "${FAKE_SBX_EXEC:-0}" ;;
+esac
+exit 0
+EOF
 chmod +x "$fakes/claude" "$fakes/sbx"
 ln -s "$(command -v seq)" "$tools/seq"
 
@@ -440,6 +451,59 @@ setup "launcher, no tty"
 run_launcher ""
 assert_eq "$(cat "$FAKE_LOG")" "|" "runs claude without prompting"
 assert_not_contains "$(cat "$t/out")" "[Y/n]" "no prompt"
+
+# run_sbx_launcher args: sbx through the launcher; sets code, sbx_log.
+run_sbx_launcher() {
+    env -i HOME="$t/home" PATH="$work/with_all:$tools" FAKE_SBX_LOG="$t/sbx.log" \
+        CLAUDE_CONFIG_DIR="$t/cfg" "${extra_env[@]}" \
+        "$bash_bin" -c "source '$plugin/launcher.sh'; cd '$proj' && sbx $1" </dev/null >"$t/out" 2>&1
+    code=$?
+    sbx_log="$(grep -v '^ ' "$t/sbx.log" 2>/dev/null | cut -d' ' -f1-3)"
+}
+
+setup "sbx launcher, plugin installed once per sandbox"
+run_sbx_launcher "run claude"
+assert_eq "$code" 0 "exit"
+assert_eq "$sbx_log" "$(printf 'run claude -d\nls --json\nexec claude-proj --\nrun claude')" "detached start, install, attach"
+assert_contains "$(cat "$t/out")" "Installing the agent-isolation plugin in sandbox claude-proj" "install shown"
+assert_eq "$(ls "$t/cfg/agent-isolation/sandboxes")" "4d390e74-13f0" "marker per sandbox id"
+rm -f "$t/sbx.log"
+run_sbx_launcher "run claude"
+assert_eq "$sbx_log" "$(printf 'run claude -d\nrun claude')" "no install the second time"
+
+setup "sbx launcher, recreated sandbox"
+run_sbx_launcher "run claude"
+rm -f "$t/sbx.log"
+extra_env=(FAKE_SBX_ID=9f00aa11-2222)
+run_sbx_launcher "run claude"
+assert_contains "$sbx_log" "exec claude-proj" "new id installs again"
+
+setup "sbx launcher, install fails"
+extra_env=(FAKE_SBX_EXEC=1)
+run_sbx_launcher "run claude"
+assert_contains "$(cat "$t/out")" "Could not install it" "failure shown"
+assert_contains "$sbx_log" "$(printf 'exec claude-proj --\nrun claude')" "still attaches"
+assert_eq "$(ls "$t/cfg/agent-isolation/sandboxes" 2>/dev/null)" "" "no marker"
+
+setup "sbx launcher, unexpected detached output"
+extra_env=(FAKE_SBX_ID="not an id")
+run_sbx_launcher "run claude"
+assert_eq "$sbx_log" "$(printf 'run claude -d\nrun claude')" "skips the install, attaches"
+
+setup "sbx launcher, other commands and opt-out"
+run_sbx_launcher "ls -q"
+assert_eq "$sbx_log" "ls -q" "other commands unchanged"
+rm -f "$t/sbx.log"
+run_sbx_launcher "run claude --name x"
+assert_eq "$sbx_log" "run claude --name" "run with more arguments unchanged"
+rm -f "$t/sbx.log"
+extra_env=(AGENT_ISOLATION_LAUNCHER=off)
+run_sbx_launcher "run claude"
+assert_eq "$sbx_log" "run claude" "off skips the install"
+rm -f "$t/sbx.log"
+extra_env=(SANDBOX_NAME=test)
+run_sbx_launcher "run claude"
+assert_eq "$sbx_log" "run claude" "inside sbx unchanged"
 
 # --- summary ----------------------------------------------------------------------------------
 

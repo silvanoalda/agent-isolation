@@ -1,6 +1,6 @@
 {
   "name": "agent-isolation",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "What your coding agent can reach on your host, and how isolating it protects you. For Claude Code.",
   "author": {
     "name": "Silvano Aldà"
