@@ -25,7 +25,17 @@ run prints nothing on stdout and exits 2 with a message for Claude on stderr, or
 ```bash
 claude plugin validate . && claude plugin validate plugins/agent-isolation
 bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh
+bash tests/run.sh
+```
 
+`tests/run.sh` covers the hook (main and `analyse` runs) and the launcher with fake `claude`
+and `sbx` binaries, so it needs no login or network. Add a case there for every behaviour
+change. CI (`.github/workflows/test.yml`) runs the same three steps on every push.
+Not covered: the DDEV install in sbx and the interactive launcher prompt.
+
+For a manual run against the real `claude`:
+
+```bash
 t=$(mktemp -d); git init -q "$t/proj"
 CLAUDE_PROJECT_DIR="$t/proj" CLAUDE_PLUGIN_ROOT="$PWD/plugins/agent-isolation" \
 CLAUDE_CONFIG_DIR="$t/cfg" bash plugins/agent-isolation/hooks/isolation-check.sh | jq .

@@ -1,0 +1,23 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh tests/run.sh
+
+      - name: Validate plugin and marketplace
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate .
+          claude plugin validate plugins/agent-isolation
+
+      - name: Hook and launcher tests
+        run: bash tests/run.sh
