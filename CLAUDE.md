@@ -18,6 +18,9 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
   run shows the update commands from that cache. In a Dev Container or other container it exits silently.
 - `plugins/agent-isolation/launcher.sh`: optional shell function, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`.
+- `kit/spec.yaml`: sbx mixin kit that installs the plugin in a sandbox (`sbx run claude --kit`
+  on creation, `sbx kit add` on an existing one), since sandboxes do not share the host's
+  `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.
 
 The main run must always exit 0 and print either nothing or one valid JSON object. The `analyse`
 run prints nothing on stdout and exits 2 with a message for Claude on stderr, or 0 to stay quiet.

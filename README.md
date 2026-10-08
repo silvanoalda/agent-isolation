@@ -21,7 +21,32 @@ claude plugin install agent-isolation@agent-isolation
 
 Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Code.
 
-The plugin must also be installed inside sbx for the daily refresh and the DDEV install to run there.
+### Inside sbx
+
+Each sbx sandbox has its own Claude Code configuration, so the plugin installed on the host is not there. It must be installed in the sandbox for the daily refresh and the DDEV install to run. The `kit/` directory is an sbx kit that does it. sbx only accepts kits from Docker Hub by default, so allow this repository once (keep any other entries you already have, see `sbx settings get kit.allowedSources`):
+
+```bash
+sbx settings set kit.allowedSources '["docker.io/","github.com/silvanoalda/agent-isolation"]'
+```
+
+Then, for a new sandbox, from the project directory:
+
+```bash
+sbx run claude --kit 'git+https://github.com/silvanoalda/agent-isolation.git#dir=kit'
+```
+
+`--kit` only applies when the sandbox is created. For a sandbox that already exists (its name is in `sbx ls`), add the kit once, then start it as usual with `sbx run claude`:
+
+```bash
+sbx kit add claude-<project> 'git+https://github.com/silvanoalda/agent-isolation.git#dir=kit'
+```
+
+Kits are an experimental sbx feature. If they are not available, install the plugin by hand inside the sandbox:
+
+```bash
+sbx exec claude-<project> -- claude plugin marketplace add https://github.com/silvanoalda/agent-isolation.git
+sbx exec claude-<project> -- claude plugin install agent-isolation@agent-isolation
+```
 
 ## Updates
 

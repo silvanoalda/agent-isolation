@@ -1,0 +1,19 @@
+schemaVersion: "2"
+kind: mixin
+name: agent-isolation
+description: Installs the agent-isolation Claude Code plugin in the sandbox
+requires:
+  agent: claude
+
+setup:
+  # install (not startup) so the same kit works with `sbx run --kit` on a new sandbox and with
+  # `sbx kit add` on an existing one. ~/.claude persists, so it runs once per sandbox.
+  install:
+    # As the agent user, whose PATH under su lacks ~/.local/bin where claude lives. HTTPS keeps
+    # the marketplace clone fetchable for the hook's update check, since SSH is not available.
+    - command: >-
+        export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH" &&
+        claude plugin marketplace add https://github.com/silvanoalda/agent-isolation.git &&
+        claude plugin install agent-isolation@agent-isolation
+      user: "1000"
+      description: Install the agent-isolation plugin
