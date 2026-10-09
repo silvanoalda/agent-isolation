@@ -684,6 +684,20 @@ assert_eq "$out" "" "gone when it ends"
 setup "segment copied for the status line"
 run_hook
 assert_eq "$(cmp -s "$plugin/statusline.sh" "$t/cfg/agent-isolation/statusline.sh" && echo same)" same "statusline copied"
+assert_eq "$(cat "$t/cfg/agent-isolation/copies-version")" "$installed" "copies version recorded"
+
+setup "copies from a newer version kept"
+mkdir -p "$t/cfg/agent-isolation"; echo newer >"$t/cfg/agent-isolation/launcher.sh"
+echo 99.0.0 >"$t/cfg/agent-isolation/copies-version"
+run_hook
+assert_eq "$(cat "$t/cfg/agent-isolation/launcher.sh")" newer "older session does not downgrade"
+
+setup "copies from an older version replaced"
+mkdir -p "$t/cfg/agent-isolation"; echo older >"$t/cfg/agent-isolation/launcher.sh"
+echo 0.0.1 >"$t/cfg/agent-isolation/copies-version"
+run_hook
+assert_eq "$(cmp -s "$plugin/launcher.sh" "$t/cfg/agent-isolation/launcher.sh" && echo same)" same "older copy upgraded"
+assert_eq "$(cat "$t/cfg/agent-isolation/copies-version")" "$installed" "copies version updated"
 
 # --- summary ----------------------------------------------------------------------------------
 

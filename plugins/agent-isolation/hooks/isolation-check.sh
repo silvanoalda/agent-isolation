@@ -179,14 +179,21 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     in_other_container && exit 0
 
     # Stable copies of the launcher (for the shell rc) and the status line segment (for the user's
-    # status line), since the plugin cache path changes per version.
+    # status line), since the plugin cache path changes per version. A session still running an
+    # older version (its hook runs again on /clear, resume or compaction) must not downgrade them.
     launcher="$state_dir/launcher.sh"
-    for f in launcher.sh statusline.sh; do
-        if ! cmp -s "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null; then
-            mkdir -p "$state_dir" && cp "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null \
-                && chmod +x "$state_dir/$f"
-        fi
-    done
+    copies_version="$(head -n 1 "$state_dir/copies-version" 2>/dev/null)"
+    if ! valid_version "$copies_version" || ! valid_version "$installed_version" \
+        || ! is_newer "$copies_version" "$installed_version"; then
+        for f in launcher.sh statusline.sh; do
+            if ! cmp -s "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null; then
+                mkdir -p "$state_dir" && cp "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null \
+                    && chmod +x "$state_dir/$f"
+            fi
+        done
+        valid_version "$installed_version" && [ -d "$state_dir" ] \
+            && printf '%s\n' "$installed_version" >"$state_dir/copies-version" 2>/dev/null
+    fi
 
     # With sbx, load the launcher from the shell rc files without a manual step, so that
     # `sbx run claude` installs this plugin in each sandbox. A missing line is added back at every
