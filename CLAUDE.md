@@ -11,7 +11,8 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
   analysis in the background and wakes Claude to show it.
 - `plugins/agent-isolation/hooks/isolation-check.sh`: the hook. On the host (`SANDBOX_NAME`
   unset, not in a container) it prints the warning; inside sbx it installs DDEV when `.ddev/`
-  exists; in both cases the `analyse` run regenerates `.claude/agent-isolation.local.txt` with a headless
+  exists. On the host it also shows sbx install steps when `sbx` is missing and KVM fixes on Linux
+  (`AGENT_ISOLATION_SYSROOT` relocates `/dev/kvm` and `/etc/os-release` for the tests); in both cases the `analyse` run regenerates `.claude/agent-isolation.local.txt` with a headless
   read only `claude -p` when that file is missing or older than a day (falling back to asking
   Claude in the session if that fails). The `analyse` run also fetches the marketplace clone once a
   day and caches a newer plugin `version` in `~/.claude/agent-isolation/latest-version`; the main
@@ -19,7 +20,9 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 - `plugins/agent-isolation/launcher.sh`: optional shell functions, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`. `sbx run claude` starts the sandbox detached,
   installs the plugin there with `sbx exec` (once per sandbox id, marker in
-  `~/.claude/agent-isolation/sandboxes/`), then attaches; `claude` offers to use sbx.
+  `~/.claude/agent-isolation/sandboxes/`), then attaches; `claude` offers to use sbx. When sbx is
+  installed, the host run adds a guarded `.` of that copy to `~/.bashrc`/`~/.zshrc` once
+  (marker `~/.claude/agent-isolation/rc-added`, so a removed line stays removed).
 - `kit/spec.yaml`: sbx mixin kit for users without the launcher, installing the plugin in a
   sandbox (`sbx run claude --kit` on creation, `sbx kit add` on an existing one), since
   sandboxes do not share the host's `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.

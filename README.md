@@ -6,8 +6,8 @@ A Claude Code plugin (and single-plugin marketplace) that reminds you, for every
 
 At session start it:
 
-- **On the host**: shows a warning listing the risks for this project and ranking the isolation options (sbx, Dev Containers, bubblewrap) with how to start each one.
-- **Once a day** (on the host and inside sbx): runs, in the background, a headless read only Claude (`claude -p` with only Read, Glob and Grep, `.env` files and keys denied) that re-analyses the current project and rewrites that list, so it follows project changes and newer models. The warning shows at once with the previous analysis (or a generic one at the first start), and Claude shows the new analysis in the session as soon as it is ready, usually within a minute. If generation fails, Claude does it in the session after your first message instead. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
+- **On the host**: shows a warning listing the risks for this project and ranking the isolation options (sbx, Dev Containers, bubblewrap) with how to start each one. When sbx is missing, it shows how to install it for your system (sbx needs no Docker), and on Linux it checks that KVM, which sbx needs, is available to your user.
+- **Once a day** (on the host and inside sbx): runs, in the background, a headless read only Claude (`claude -p` with only Read, Glob and Grep, `.env` files and keys denied) that re-analyses the current project and rewrites that list, so it follows project changes and newer models. The warning shows at once with the previous analysis (at the first start, only a line saying it is being generated), and Claude shows the new analysis in the session as soon as it is ready, usually within a minute. If generation fails, Claude does it in the session after your first message instead. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
 - **Inside sbx**: installs DDEV from GitHub releases when the project has a `.ddev/` directory and `ddev` is missing.
 - **Inside a Dev Container or other container**: stays silent.
 - **Once a day** (on the host and inside sbx): checks the marketplace for a newer version of the plugin. When there is one, the next start shows the update commands and Claude offers to run them.
@@ -25,7 +25,7 @@ Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Co
 
 Each sbx sandbox has its own Claude Code configuration, so the plugin installed on the host is not there. It must be installed in the sandbox for the daily refresh and the DDEV install to run.
 
-The [launcher](#launcher) does it for you: with it sourced, `sbx run claude` installs the plugin in the project's sandbox the first time (new or existing sandbox), then starts the session. Nothing else to do.
+The [launcher](#launcher) does it for you: `sbx run claude` installs the plugin in the project's sandbox the first time (new or existing sandbox), then starts the session. Nothing else to do.
 
 Without the launcher, the `kit/` directory is an sbx kit that does the same. sbx only accepts kits from Docker Hub by default, so allow this repository once (keep any other entries you already have, see `sbx settings get kit.allowedSources`):
 
@@ -60,18 +60,18 @@ Then run `/reload-plugins` (or restart Claude Code). A marketplace added from a 
 
 ## Launcher
 
-Recommended when you use sbx. Add this to `~/.bashrc` or `~/.zshrc` on the host:
+When sbx is installed, the hook adds the launcher to `~/.bashrc` and `~/.zshrc` (those that exist, or the one of your login shell) at the first start on the host, and says so in the warning. It takes effect in new terminals. It does this only once: if you remove the line, it is not added back, and you can load it yourself with:
 
 ```bash
 source ~/.claude/agent-isolation/launcher.sh
 ```
 
-Then:
+With the launcher:
 
 - `sbx run claude` installs the plugin in the project's sandbox when it is not there yet (a few seconds, once per sandbox, also when a sandbox is recreated), then starts the session as usual. With other arguments, `sbx` runs unchanged.
 - `claude` without arguments in a git repository asks whether to start it with `sbx run claude` instead of on the host.
 
-The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off.
+The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off (and, set before the first start, to keep the hook from adding the line).
 
 ## Settings (environment variables)
 
