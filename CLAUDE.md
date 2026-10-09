@@ -21,8 +21,11 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
   `~/.claude/agent-isolation/launcher.sh`. `sbx run claude` starts the sandbox detached,
   installs the plugin there with `sbx exec` (once per sandbox id, marker in
   `~/.claude/agent-isolation/sandboxes/`), then attaches; `claude` offers to use sbx. When sbx is
-  installed, the host run adds a guarded `.` of that copy to `~/.bashrc`/`~/.zshrc` once
-  (marker `~/.claude/agent-isolation/rc-added`, so a removed line stays removed).
+  installed, the host run adds a guarded `.` of that copy to `~/.bashrc`/`~/.zshrc` whenever it
+  is missing (opt out with `AGENT_ISOLATION_LAUNCHER=off`).
+- `plugins/agent-isolation/statusline.sh`: opt-in status line segment, copied by the hook to
+  `~/.claude/agent-isolation/statusline.sh`. It prints a spinner while the `analyse` run holds
+  its lock (`$TMPDIR/agent-isolation-<cksum of project dir>.lock`), so keep both paths in sync.
 - `kit/spec.yaml`: sbx mixin kit for users without the launcher, installing the plugin in a
   sandbox (`sbx run claude --kit` on creation, `sbx kit add` on an existing one), since
   sandboxes do not share the host's `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.
@@ -34,7 +37,7 @@ run prints nothing on stdout and exits 2 with a message for Claude on stderr, or
 
 ```bash
 claude plugin validate . && claude plugin validate plugins/agent-isolation
-bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh
+bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh plugins/agent-isolation/statusline.sh
 bash tests/run.sh
 ```
 

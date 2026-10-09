@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Syntax
-        run: bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh tests/run.sh
+        run: bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh plugins/agent-isolation/statusline.sh tests/run.sh
 
       - name: Validate plugin and marketplace
         run: |

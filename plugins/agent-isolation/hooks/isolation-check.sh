@@ -55,7 +55,7 @@ json_escape_file() {
         | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk '{printf "%s\\n", $0}'
 }
 
-analysis_task="the agent isolation risk analysis shown to developers who start Claude Code directly on the host instead of in an isolated environment. Inspect the current project for concrete risks of running an AI agent on the host without isolation: secret names in .env.example, .env.* templates and config files (never open .env, ~/.ssh, cloud credentials or other secret files, only infer from names and templates), deploy targets and production access (CI configs, deploy scripts, Envoy, Ansible, Terraform, Kubernetes, Makefile), Docker, Compose and DDEV usage (a Docker socket is root-equivalent on the host), MCP servers (.mcp.json), package manager install scripts, external services reached (databases, LDAP, SMTP, APIs). Then compare for this project sbx, Claude Code on the web (cloud sandbox at claude.ai/code, nothing runs on the host, needs the repo on GitHub, no local services such as DDEV), Dev Containers (local, or GitHub Codespaces when a .devcontainer exists) and bubblewrap (Claude Code /sandbox), and pick one. Format: plain terminal text, no Markdown, at most 90 columns and 18 lines. First line: Generated YYYY-MM-DD by <your model id>. Then a section titled Risks by severity: with at most 5 risks sorted from most to least severe, each line starting with 🔴 HIGH, 🟠 MEDIUM or 🟡 LOW padded to the same width, at most two lines per risk, continuation lines aligned with the text. HIGH means secrets or credentials can leak or production and other systems are reachable, MEDIUM means damage stays on this machine or needs an extra step, LOW means unlikely or minor. Then a section titled What to do: with numbered steps a developer can follow without further reading: 1. Type /exit. 2. Recommended: the chosen option, why it fits the risks found here, and how to start it. 3. one-time setup, only if that option needs some. Start commands, use them as written: sbx run claude from the project directory; open claude.ai/code and select this repository; reopen the project in a Dev Container or Codespace; /sandbox in the session. End with one line starting Alternatives: naming the other options and when to prefer them."
+analysis_task="the agent isolation risk analysis shown to developers who start Claude Code directly on the host instead of in an isolated environment. Inspect the current project for concrete risks of running an AI agent on the host without isolation: secret names in .env.example, .env.* templates and config files (never open .env, ~/.ssh, cloud credentials or other secret files, only infer from names and templates), deploy targets and production access (CI configs, deploy scripts, Envoy, Ansible, Terraform, Kubernetes, Makefile), Docker, Compose and DDEV usage (a Docker socket is root-equivalent on the host), MCP servers (.mcp.json), package manager install scripts, external services reached (databases, LDAP, SMTP, APIs). Then compare for this project sbx, Claude Code on the web (cloud sandbox at claude.ai/code, nothing runs on the host, needs the repo on GitHub, no local services such as DDEV), Dev Containers (local, or GitHub Codespaces when a .devcontainer exists) and bubblewrap (Claude Code /sandbox), and pick one. Format: plain terminal text, no Markdown, at most 90 columns and 18 lines. First line: Generated YYYY-MM-DD by <your model id>. Then a section titled Risks by severity: with at most 5 risks sorted from most to least severe, each line starting with 🔴 HIGH, 🟠 MEDIUM or 🟡 LOW padded to the same width, at most two lines per risk, continuation lines aligned with the text. HIGH means secrets or credentials can leak or production and other systems are reachable, MEDIUM means damage stays on this machine or needs an extra step, LOW means unlikely or minor. Then a section titled What to do: with numbered steps a developer can follow without further reading: 1. Type /exit. 2. Recommended: the chosen option, why it fits the risks found here, and how to start it. 3. one-time setup, only if that option needs some. Put the start command alone on its own line, indented by 8 spaces and preceded by ▶ and two spaces, nothing else on that line. Start commands, use them as written: sbx run claude from the project directory; open claude.ai/code and select this repository; reopen the project in a Dev Container or Codespace; /sandbox in the session. End with one line starting Alternatives: naming the other options and when to prefer them."
 
 # Update check: auto-update is off by default for third-party marketplaces, so the analyse run
 # compares once a day the installed version with the marketplace remote and caches a newer one.
@@ -134,7 +134,7 @@ generate_risks() {
 }
 
 # How Claude presents a new analysis in the session: highlighted by severity, with clear steps.
-present_task="Do not paste it as a code block: rewrite it in compact Markdown, always in English whatever language the session uses, adding no facts, at most 10 lines and no headings. One line per risk, most severe first, starting with 🔴, 🟠 or 🟡, the thing at risk in bold and a few words on why. Then one line starting with 👉 **Recommended:** naming the option the analysis picked and why it fits this project's specific risks, followed by the steps: /exit, then the exact start command in a code span. End with one short line of alternatives and when to prefer them."
+present_task="Do not paste it as a code block: rewrite it in compact Markdown, always in English whatever language the session uses, adding no facts, at most 10 lines and no headings. One line per risk, most severe first, starting with 🔴, 🟠 or 🟡, the thing at risk in bold and a few words on why. Then one line starting with 👉 **Recommended:** naming the option the analysis picked and why it fits this project's specific risks, followed by the steps: /exit, then a line **▶ Run:** and the exact start command alone in a fenced code block (\`\`\`bash), so it stands out. If it is not a shell command (/sandbox in the session, opening claude.ai/code, reopening in a Dev Container), write it on the **▶ Run:** line as inline code instead, never in a bash block. End with one short line of alternatives and when to prefer them."
 
 refresh_task="refresh $analysis_task Overwrite $risks_rel with the Write tool, then show the new analysis to the developer. $present_task"
 
@@ -178,14 +178,20 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     # A Dev Container or other container already isolates the session.
     in_other_container && exit 0
 
-    # Stable copy of the launcher for the shell rc, since the plugin cache path changes per version.
-    launcher="$config_dir/agent-isolation/launcher.sh"
-    if ! cmp -s "${CLAUDE_PLUGIN_ROOT:-}/launcher.sh" "$launcher" 2>/dev/null; then
-        mkdir -p "$(dirname "$launcher")" && cp "${CLAUDE_PLUGIN_ROOT:-}/launcher.sh" "$launcher" 2>/dev/null
-    fi
+    # Stable copies of the launcher (for the shell rc) and the status line segment (for the user's
+    # status line), since the plugin cache path changes per version.
+    launcher="$state_dir/launcher.sh"
+    for f in launcher.sh statusline.sh; do
+        if ! cmp -s "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null; then
+            mkdir -p "$state_dir" && cp "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null \
+                && chmod +x "$state_dir/$f"
+        fi
+    done
 
     # With sbx, load the launcher from the shell rc files without a manual step, so that
-    # `sbx run claude` installs this plugin in each sandbox. Done once: a removed line stays removed.
+    # `sbx run claude` installs this plugin in each sandbox. A missing line is added back at every
+    # start; AGENT_ISOLATION_LAUNCHER=off is the way to opt out.
+    rm -f "$state_dir/rc-added"  # one-time marker of 0.7.0, no longer used
     rc_added=""
     rc_hint=""
     if command -v sbx >/dev/null 2>&1 && [ -f "$launcher" ] && [ "${AGENT_ISOLATION_LAUNCHER:-}" != "off" ]; then
@@ -194,18 +200,17 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
         if [ -z "$rc_files" ]; then
             case "${SHELL:-}" in */bash) rc_files=" .bashrc" ;; */zsh) rc_files=" .zshrc" ;; esac
         fi
-        rc_marker="$config_dir/agent-isolation/rc-added"
-        if [ -e "$rc_marker" ]; then
-            rc_hint=1
-            for f in $rc_files; do grep -qsF 'agent-isolation/launcher.sh' "$HOME/$f" && rc_hint=""; done
-        elif [ -n "$rc_files" ]; then
-            for f in $rc_files; do
-                grep -qsF 'agent-isolation/launcher.sh' "$HOME/$f" && continue
-                printf '\n# agent-isolation plugin: `sbx run claude` installs it in the sandbox, `claude` offers sbx.\nif [ -f "%s" ]; then . "%s"; fi\n' \
-                    "$launcher" "$launcher" >>"$HOME/$f" 2>/dev/null && rc_added+=" ~/$f"
-            done
-            touch "$rc_marker" 2>/dev/null
-        fi
+        [ -z "$rc_files" ] && rc_hint=1
+        for f in $rc_files; do
+            grep -qsF 'agent-isolation/launcher.sh' "$HOME/$f" && continue
+            # A read-only rc file (e.g. managed by Nix or a dotfiles store): show the line instead.
+            if printf '\n# agent-isolation plugin: `sbx run claude` installs it in the sandbox, `claude` offers sbx.\nif [ -f "%s" ]; then . "%s"; fi\n' \
+                "$launcher" "$launcher" >>"$HOME/$f" 2>/dev/null; then
+                rc_added+=" ~/$f"
+            else
+                rc_hint=1
+            fi
+        done
     fi
 
     # sbx readiness: install steps when it is missing, KVM fixes on Linux. sbx runs its own
@@ -292,14 +297,18 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     [ -n "$refresh_context" ] && msg+="$gap🔄  Analysis missing or older than a day: Claude refreshes it after your first message.\n"
     [ -n "$update_line" ] && msg+="\n$update_line"
     if [ -n "$sbx_installable" ]; then
-        msg+="\n👉  Install sbx (below), then exit (/exit) and restart isolated from the project\n    directory: sbx run claude\n"
+        msg+="\n👉  Install sbx (below), then exit (/exit) and restart isolated from the project directory:\n"
+        msg+="\n        ▶  sbx run claude\n"
+    elif command -v sbx >/dev/null 2>&1; then
+        msg+="\n👉  Exit now (/exit) and restart isolated, e.g. from the project directory:\n"
+        msg+="\n        ▶  sbx run claude\n"
     else
-        msg+="\n👉  Exit now (/exit) and restart isolated, e.g. from the project directory: sbx run claude\n"
+        msg+="\n👉  Exit now (/exit) and restart isolated with one of the options below.\n"
     fi
     [ -n "$sbx_guide" ] && msg+="\n$sbx_guide"
     if [ -n "$rc_added" ]; then
         msg+="\n💡  Launcher added to${rc_added}: in a new terminal, sbx run claude also installs\n"
-        msg+="    this plugin in the sandbox. Remove the line there to undo it.\n"
+        msg+="    this plugin in the sandbox. To opt out, set AGENT_ISOLATION_LAUNCHER=off.\n"
     elif [ -n "$rc_hint" ]; then
         msg+="\n💡  Get asked next time, and the plugin installed in each sbx sandbox:\n    add this line to ~/.bashrc or ~/.zshrc\n\n"
         msg+="        source \\\"$launcher\\\"\n"

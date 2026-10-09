@@ -21,7 +21,7 @@ current=""
 tools="$work/tools"
 mkdir -p "$tools"
 for t in bash git jq sed awk grep find head tail tr cat cut cksum mkdir rmdir mktemp mv rm cp \
-    cmp dirname basename readlink timeout sleep touch uname env wc ls ln chmod sort; do
+    cmp dirname basename readlink timeout sleep touch uname env wc ls ln chmod sort date; do
     p="$(command -v "$t")" || { echo "missing tool: $t"; exit 1; }
     ln -s "$p" "$tools/$t"
 done
@@ -131,6 +131,10 @@ assert_not_contains "$(msg)" "Real risks here:" "no generic text while the analy
 assert_contains "$(msg)" "running in the background" "background line"
 assert_not_contains "$(ctx)" "Daily task" "context"
 assert_eq "$(wc -c <"$FAKE_LOG" | tr -d ' ')" 0 "main run must not call claude"
+
+setup "host, start command on its own line"
+run_hook
+assert_contains "$(msg)" "$(printf '\n        ▶  sbx run claude\n')" "command alone on an indented line"
 
 setup "host, fresh analysis"
 write_risks "Generated today by test
@@ -249,8 +253,27 @@ mkdir -p "$t/home"; : >"$t/home/.bashrc"
 run_hook
 printf '# mine\n' >"$t/home/.bashrc"
 run_hook
-assert_eq "$(sources "$t/home/.bashrc")" 0 "not added back"
-assert_contains "$(msg)" "source" "hint shown instead"
+assert_eq "$(sources "$t/home/.bashrc")" 1 "added back"
+assert_contains "$(msg)" "added to ~/.bashrc" "re-add announced"
+
+setup "launcher, no shell rc file known"
+mkdir -p "$t/home"
+extra_env=(SHELL=/usr/bin/fish)
+run_hook
+assert_contains "$(msg)" "source" "manual hint when there is no rc file to edit"
+
+setup "launcher, rc file not writable"
+mkdir -p "$t/home"; echo "# mine" >"$t/home/.bashrc"; chmod 444 "$t/home/.bashrc"
+run_hook
+assert_eq "$(sources "$t/home/.bashrc")" 0 "unchanged"
+assert_not_contains "$(msg)" "Launcher added" "no false claim"
+assert_contains "$(msg)" "source" "manual hint instead"
+chmod 644 "$t/home/.bashrc"
+
+setup "launcher, old one-time marker removed"
+mkdir -p "$t/cfg/agent-isolation" "$t/home"; : >"$t/cfg/agent-isolation/rc-added"
+run_hook
+assert_eq "$([ -e "$t/cfg/agent-isolation/rc-added" ] && echo left)" "" "marker cleaned up"
 
 setup "launcher already sourced by the user"
 mkdir -p "$t/home"; echo 'source ~/.claude/agent-isolation/launcher.sh' >"$t/home/.bashrc"
@@ -327,6 +350,7 @@ extra_env=(FAKE_ARCH=x86_64)
 run_hook
 assert_contains "$(msg)" "Apple silicon" "unsupported Mac explained"
 assert_not_contains "$(msg)" "brew install" "no install steps"
+assert_not_contains "$(msg)" "▶  sbx run claude" "no sbx command where it cannot run"
 
 setup "json escaping"
 write_risks "$(printf 'Generated "quoted" \\ back\tslash\n• line two')"
@@ -355,6 +379,10 @@ assert_not_contains "$(cat "$risks")" '```' "no code fence"
 assert_contains "$err" "Show it to the developer" "instruction for Claude"
 assert_contains "$err" "fake risk" "analysis in message"
 assert_contains "$err" "starting with 🔴" "grouped by severity"
+assert_contains "$err" "fenced code block" "start command in its own code block"
+assert_contains "$err" "not a shell command" "no bash block for /sandbox or a web page"
+assert_contains "$err" "**▶ Run:**" "start command highlighted"
+assert_contains "$(cat "$FAKE_LOG")" "on its own line" "analysis puts the start command on its own line"
 assert_contains "$err" "What to do" "steps requested"
 assert_not_contains "$err" "verbatim" "not pasted as is"
 assert_contains "$err" "always in English" "message language"
@@ -614,6 +642,48 @@ rm -f "$t/sbx.log"
 extra_env=(SANDBOX_NAME=test)
 run_sbx_launcher "run claude"
 assert_eq "$sbx_log" "run claude" "inside sbx unchanged"
+
+# --- status line segment -----------------------------------------------------------------------
+
+# run_segment json: the segment as a status line command would call it; sets out.
+run_segment() {
+    out="$(printf '%s' "$1" | env -i HOME="$t/home" TMPDIR="$t/tmp" PATH="$tools" \
+        "$bash_bin" "$plugin/statusline.sh")"
+}
+lock_of() { printf '%s' "$t/tmp/agent-isolation-$(printf '%s' "$1" | cksum | cut -d' ' -f1).lock"; }
+
+setup "segment, no analysis running"
+run_segment "{\"workspace\":{\"project_dir\":\"$proj\",\"current_dir\":\"$proj\"}}"
+assert_eq "$out" "" "prints nothing"
+
+setup "segment, analysis running"
+mkdir "$(lock_of "$proj")"
+run_segment "{\"workspace\":{\"project_dir\":\"$proj\",\"current_dir\":\"$proj/sub\"}}"
+assert_contains "$out" "Analysing isolation risks" "label"
+assert_eq "$(printf '%s' "$out" | grep -cE '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]')" 1 "spinner frame"
+run_segment "{\"workspace\":{\"current_dir\":\"$proj\"}}"
+assert_contains "$out" "Analysing" "falls back to current_dir"
+run_segment "{\"workspace\":{\"project_dir\":\"$proj/other\"}}"
+assert_eq "$out" "" "other project: nothing"
+
+setup "segment, stale lock"
+mkdir "$(lock_of "$proj")"; touch -d '20 minutes ago' "$(lock_of "$proj")"
+run_segment "{\"workspace\":{\"project_dir\":\"$proj\"}}"
+assert_eq "$out" "" "stale lock ignored"
+
+setup "segment, lock matches the analyse run"
+extra_env=(FAKE_CLAUDE=slow AGENT_ISOLATION_ANALYSIS_TIMEOUT=3)
+run_hook analyse &
+for _ in $(seq 1 50); do [ -d "$(lock_of "$proj")" ] && break; sleep 0.1; done
+run_segment "{\"workspace\":{\"project_dir\":\"$proj\"}}"
+assert_contains "$out" "Analysing" "shown while the analyse run works"
+wait
+run_segment "{\"workspace\":{\"project_dir\":\"$proj\"}}"
+assert_eq "$out" "" "gone when it ends"
+
+setup "segment copied for the status line"
+run_hook
+assert_eq "$(cmp -s "$plugin/statusline.sh" "$t/cfg/agent-isolation/statusline.sh" && echo same)" same "statusline copied"
 
 # --- summary ----------------------------------------------------------------------------------
 

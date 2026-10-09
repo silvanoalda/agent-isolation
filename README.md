@@ -60,7 +60,7 @@ Then run `/reload-plugins` (or restart Claude Code). A marketplace added from a 
 
 ## Launcher
 
-When sbx is installed, the hook adds the launcher to `~/.bashrc` and `~/.zshrc` (those that exist, or the one of your login shell) at the first start on the host, and says so in the warning. It takes effect in new terminals. It does this only once: if you remove the line, it is not added back, and you can load it yourself with:
+When sbx is installed, the hook adds the launcher to `~/.bashrc` and `~/.zshrc` (those that exist, or the one of your login shell) at the first start on the host, and says so in the warning. It takes effect in new terminals. A removed line is added back at the next start: to opt out, set `AGENT_ISOLATION_LAUNCHER=off`. If none of those files can be used, the warning shows the line to add yourself:
 
 ```bash
 source ~/.claude/agent-isolation/launcher.sh
@@ -71,7 +71,20 @@ With the launcher:
 - `sbx run claude` installs the plugin in the project's sandbox when it is not there yet (a few seconds, once per sandbox, also when a sandbox is recreated), then starts the session as usual. With other arguments, `sbx` runs unchanged.
 - `claude` without arguments in a git repository asks whether to start it with `sbx run claude` instead of on the host.
 
-The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off (and, set before the first start, to keep the hook from adding the line).
+The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off and keep the hook from adding the line.
+
+## Status line (optional)
+
+The analysis runs in the background for about a minute. To see an animated spinner in the status line meanwhile, call the segment the plugin keeps at `~/.claude/agent-isolation/statusline.sh` (under `$CLAUDE_CONFIG_DIR` instead of `~/.claude` if you set it, as for the launcher) from your status line script, passing it the JSON Claude Code gives on stdin. It prints nothing when no analysis runs:
+
+```bash
+input=$(cat)
+# ... your status line ...
+seg="$(printf '%s' "$input" | ~/.claude/agent-isolation/statusline.sh 2>/dev/null)"
+[ -n "$seg" ] && printf ' | %s' "$seg"
+```
+
+Then add `"refreshInterval": 1` to `statusLine` in `~/.claude/settings.json`, so the status line is redrawn every second while the session is idle. Plugins cannot set the status line themselves, which is why this step is manual.
 
 ## Settings (environment variables)
 
