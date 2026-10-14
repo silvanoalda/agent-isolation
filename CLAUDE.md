@@ -20,9 +20,15 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 - `plugins/agent-isolation/launcher.sh`: optional shell functions, copied by the hook to
   `~/.claude/agent-isolation/launcher.sh`. `sbx run claude` starts the sandbox detached,
   installs the plugin there with `sbx exec` (once per sandbox id, marker in
-  `~/.claude/agent-isolation/sandboxes/`), then attaches; `claude` offers to use sbx. When sbx is
+  `~/.claude/agent-isolation/sandboxes/`), installs DDEV when `.ddev/` exists and the sandbox
+  lacks it (`install-ddev.sh` sent through `sbx exec -i … bash -s`, progress on the terminal),
+  then attaches; `claude` offers to use sbx. When sbx is
   installed, the host run adds a guarded `.` of that copy to `~/.bashrc`/`~/.zshrc` whenever it
-  is missing (opt out with `AGENT_ISOLATION_LAUNCHER=off`).
+  is missing (opt out with `AGENT_ISOLATION_LAUNCHER=off`). `sbx` and `claude` reload that copy when
+  its checksum changed, so terminals opened before an update run the new launcher.
+- `plugins/agent-isolation/install-ddev.sh`: installs the latest DDEV release from GitHub
+  (sha256 verified), one line per step. Copied by the hook next to the launcher; the hook runs it
+  itself inside sbx as a fallback when the session starts without DDEV.
 - `plugins/agent-isolation/statusline.sh`: opt-in status line segment, copied by the hook to
   `~/.claude/agent-isolation/statusline.sh`. It prints a spinner while the `analyse` run holds
   its lock (`$TMPDIR/agent-isolation-<cksum of project dir>.lock`), so keep both paths in sync.
@@ -44,7 +50,7 @@ bash tests/run.sh
 `tests/run.sh` covers the hook (main and `analyse` runs) and the launcher with fake `claude`
 and `sbx` binaries, so it needs no login or network. Add a case there for every behaviour
 change. CI (`.github/workflows/test.yml`) runs the same three steps on every push.
-Not covered: the DDEV install in sbx, the interactive launcher prompt and the kit
+Not covered: the real DDEV download (the fake `sbx exec -i` only captures the script), the interactive launcher prompt and the kit
 (check it with `sbx kit validate kit`).
 
 For a manual run against the real `claude`:

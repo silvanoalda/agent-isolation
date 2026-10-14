@@ -54,6 +54,11 @@ case "$*" in
             array) printf '%s\n' "$list" ;;
             object) printf '{"sandboxes":%s}\n' "$list" ;;
         esac ;;
+    *"command -v ddev"*) exit "${FAKE_SBX_HAS_DDEV:-1}" ;;
+    "exec -i "*)
+        cat >"${FAKE_SBX_STDIN:-/dev/null}"
+        printf '    fake step\ninstalled DDEV v9.9.9 into /usr/local/bin\n'
+        exit "${FAKE_SBX_DDEV_INSTALL:-0}" ;;
     exec*) exit "${FAKE_SBX_EXEC:-0}" ;;
 esac
 exit 0
@@ -235,6 +240,7 @@ setup "launcher added to existing shell rc files"
 mkdir -p "$t/home"; echo "# mine" >"$t/home/.bashrc"; echo "# mine" >"$t/home/.zshrc"
 run_hook
 assert_eq "$(cmp -s "$plugin/launcher.sh" "$t/cfg/agent-isolation/launcher.sh" && echo same)" same "launcher copied"
+assert_eq "$(cmp -s "$plugin/install-ddev.sh" "$t/cfg/agent-isolation/install-ddev.sh" && echo same)" same "DDEV installer copied"
 assert_eq "$(sources "$t/home/.bashrc")" 1 "added to .bashrc"
 assert_eq "$(sources "$t/home/.zshrc")" 1 "added to .zshrc"
 assert_contains "$(head -n 1 "$t/home/.bashrc")" "# mine" "existing content kept"
@@ -643,6 +649,54 @@ setup "sbx launcher, unexpected detached output"
 extra_env=(FAKE_SBX_ID="not an id")
 run_sbx_launcher "run claude"
 assert_eq "$sbx_log" "$(printf 'run claude -d\nrun claude')" "skips the install, attaches"
+assert_contains "$(cat "$t/out")" "Could not identify the sandbox" "skip shown"
+
+# ddev_project: a DDEV project and the installer copy the hook keeps next to the launcher.
+ddev_project() {
+    mkdir -p "$proj/.ddev" "$t/cfg/agent-isolation"
+    cp "$plugin/install-ddev.sh" "$t/cfg/agent-isolation/install-ddev.sh"
+}
+
+setup "sbx launcher, DDEV installed in the sandbox with progress"
+ddev_project
+extra_env=(FAKE_SBX_STDIN="$t/stdin")
+run_sbx_launcher "run claude"
+assert_eq "$code" 0 "exit"
+assert_contains "$(cat "$t/out")" "Installing DDEV in sandbox claude-proj" "install announced"
+assert_contains "$(cat "$t/out")" "    fake step" "progress streamed"
+assert_contains "$(cat "$t/out")" "DDEV is ready" "success shown"
+assert_eq "$(cmp -s "$plugin/install-ddev.sh" "$t/stdin" && echo same)" same "installer sent on stdin"
+assert_eq "$(tail -n 1 "$t/sbx.log")" "run claude" "attaches last"
+rm -f "$t/sbx.log"
+extra_env=(FAKE_SBX_HAS_DDEV=0)
+run_sbx_launcher "run claude"
+assert_contains "$(cat "$t/sbx.log")" "command -v ddev" "checked at every start"
+assert_not_contains "$(cat "$t/sbx.log")" "exec -i" "no install when present"
+assert_not_contains "$(cat "$t/out")" "Installing DDEV" "nothing shown when present"
+
+setup "sbx launcher, DDEV install fails"
+ddev_project
+extra_env=(FAKE_SBX_DDEV_INSTALL=1)
+run_sbx_launcher "run claude"
+assert_contains "$(cat "$t/out")" "Could not install DDEV" "failure shown"
+assert_eq "$(tail -n 1 "$t/sbx.log")" "run claude" "still attaches"
+
+setup "sbx launcher, no DDEV check without .ddev"
+run_sbx_launcher "run claude"
+assert_not_contains "$(cat "$t/sbx.log")" "command -v ddev" "no check"
+
+setup "launcher reloads a changed stable copy"
+mkdir -p "$t/cfg/agent-isolation"
+stable="$t/cfg/agent-isolation/launcher.sh"
+cp "$plugin/launcher.sh" "$stable"
+out_reload="$(env -i HOME="$t/home" PATH="$work/with_all:$tools" CLAUDE_CONFIG_DIR="$t/cfg" \
+    FAKE_SBX_LOG="$t/sbx.log" FAKE_LOG="$FAKE_LOG" "$bash_bin" -c "source '$stable'
+    sbx ls -q
+    printf '\n_agent_isolation_sbx_claude() { echo reloaded-sbx; }\n' >>'$stable'
+    sbx run claude
+    sbx run claude" </dev/null 2>&1)"
+assert_eq "$out_reload" "$(printf 'reloaded-sbx\nreloaded-sbx')" "new definition used, loaded once"
+assert_eq "$(cat "$t/sbx.log")" "ls -q" "unchanged copy not reloaded"
 
 setup "sbx launcher, other commands and opt-out"
 run_sbx_launcher "ls -q"

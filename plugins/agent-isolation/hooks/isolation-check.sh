@@ -178,14 +178,14 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     # A Dev Container or other container already isolates the session.
     in_other_container && exit 0
 
-    # Stable copies of the launcher (for the shell rc) and the status line segment (for the user's
-    # status line), since the plugin cache path changes per version. A session still running an
+    # Stable copies of the launcher (for the shell rc), the DDEV installer it runs in sbx, and the
+    # status line segment (for the user's status line), since the plugin cache path changes per version. A session still running an
     # older version (its hook runs again on /clear, resume or compaction) must not downgrade them.
     launcher="$state_dir/launcher.sh"
     copies_version="$(head -n 1 "$state_dir/copies-version" 2>/dev/null)"
     if ! valid_version "$copies_version" || ! valid_version "$installed_version" \
         || ! is_newer "$copies_version" "$installed_version"; then
-        for f in launcher.sh statusline.sh; do
+        for f in launcher.sh statusline.sh install-ddev.sh; do
             if ! cmp -s "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null; then
                 mkdir -p "$state_dir" && cp "${CLAUDE_PLUGIN_ROOT:-}/$f" "$state_dir/$f" 2>/dev/null \
                     && chmod +x "$state_dir/$f"
@@ -338,35 +338,10 @@ if [ ! -d "$project_dir/.ddev" ] || command -v ddev >/dev/null 2>&1; then
     exit 0
 fi
 
-install_dir="${DDEV_INSTALL_DIR:-/usr/local/bin}"
 log="$(mktemp -t ddev-install.XXXXXX.log)"
 
-# Every step checks its own status: set -e is ignored when the function runs inside an if condition.
-install_ddev() {
-    case "$(uname -m)" in
-        x86_64) arch=amd64 ;;
-        aarch64 | arm64) arch=arm64 ;;
-        *) echo "unsupported architecture $(uname -m)"; return 1 ;;
-    esac
-    # pkg.ddev.com (apt repo) is not reachable through the sbx proxy, GitHub is.
-    ver="$(curl -fsSI https://github.com/ddev/ddev/releases/latest | grep -i '^location' | sed 's#.*/tag/##' | tr -d '\r')"
-    [ -n "$ver" ] || { echo "could not resolve latest DDEV version"; return 1; }
-    tarball="ddev_linux-$arch.$ver.tar.gz"
-    tmp="$(mktemp -d)" || return 1
-    trap 'rm -rf "$tmp"' RETURN
-    curl -fsSL -o "$tmp/$tarball" "https://github.com/ddev/ddev/releases/download/$ver/$tarball" || return 1
-    curl -fsSL -o "$tmp/checksums.txt" "https://github.com/ddev/ddev/releases/download/$ver/checksums.txt" || return 1
-    (cd "$tmp" && grep " $tarball\$" checksums.txt | sha256sum -c -) || return 1
-    tar -xzf "$tmp/$tarball" -C "$tmp" || return 1
-    sudo_cmd=""
-    [ -w "$install_dir" ] || sudo_cmd="sudo -n"
-    for bin in ddev ddev-hostname mkcert; do
-        $sudo_cmd install -m 0755 "$tmp/$bin" "$install_dir/$bin" || return 1
-    done
-    echo "installed DDEV $ver into $install_dir"
-}
-
-if (install_ddev) >"$log" 2>&1; then
+# Fallback when the launcher did not install DDEV before the session (kit, or sbx run without it).
+if bash "${CLAUDE_PLUGIN_ROOT:-}/install-ddev.sh" >"$log" 2>&1 </dev/null; then
     emit "DDEV was missing in sbx and has been installed ($(tail -1 "$log" | sed 's/^installed //')). Run: ddev start, then /mcp to reconnect MCP servers that run through ddev.${update_line:+\n$update_line}" \
         "DDEV was just installed in sbx. MCP servers that run through ddev may have failed to connect at startup; suggest ddev start and /mcp to reconnect.$refresh_context$update_context"
 else

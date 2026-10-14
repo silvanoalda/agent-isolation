@@ -8,7 +8,7 @@ At session start it:
 
 - **On the host**: shows a warning listing the risks for this project and ranking the isolation options (sbx, Dev Containers, bubblewrap) with how to start each one. When sbx is missing, it shows how to install it for your system (sbx needs no Docker), and on Linux it checks that KVM, which sbx needs, is available to your user.
 - **Once a day** (on the host and inside sbx): runs, in the background, a headless read only Claude (`claude -p` with only Read, Glob and Grep, `.env` files and keys denied) that re-analyses the current project and rewrites that list, so it follows project changes and newer models. The warning shows at once with the previous analysis (at the first start, only a line saying it is being generated), and Claude shows the new analysis in the session as soon as it is ready, usually within a minute. If generation fails, Claude does it in the session after your first message instead. The result is cached in `.claude/agent-isolation.local.txt`, kept out of git through `.git/info/exclude`. A copy committed to git is ignored, since anyone with push access could have written it.
-- **Inside sbx**: installs DDEV from GitHub releases when the project has a `.ddev/` directory and `ddev` is missing.
+- **Inside sbx**: installs DDEV from GitHub releases when the project has a `.ddev/` directory and `ddev` is missing. With the [launcher](#launcher) this happens before the session starts, with the progress shown in the terminal; the hook does it at session start otherwise.
 - **Inside a Dev Container or other container**: stays silent.
 - **Once a day** (on the host and inside sbx): checks the marketplace for a newer version of the plugin. When there is one, the next start shows the update commands and Claude offers to run them.
 
@@ -25,7 +25,7 @@ Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Co
 
 1. Install the plugin on the host (above).
 2. Start `claude` once on the host, in any project. The warning shows how to install sbx when it is missing, and adds the [launcher](#launcher) to your shell rc file once sbx is there.
-3. Open a new terminal and, from the project directory, run `sbx run claude`. The first time, it installs the plugin in the project's sandbox (`🔌 Installing the agent-isolation plugin in sandbox …`), then starts the session. When the project has a `.ddev/` directory, the plugin installs DDEV there at that first start: run `ddev start` afterwards.
+3. Open a new terminal and, from the project directory, run `sbx run claude`. The first time, it installs the plugin in the project's sandbox (`🔌 Installing the agent-isolation plugin in sandbox …`), then starts the session. When the project has a `.ddev/` directory and the sandbox has no DDEV, it then installs DDEV there (`📦 Installing DDEV in sandbox …`, one line per step): run `ddev start` in the session.
 
 ### Inside sbx
 
@@ -75,9 +75,10 @@ source ~/.claude/agent-isolation/launcher.sh
 With the launcher:
 
 - `sbx run claude` installs the plugin in the project's sandbox when it is not there yet (a few seconds, once per sandbox, also when a sandbox is recreated), then starts the session as usual. With other arguments, `sbx` runs unchanged.
+- In a project with a `.ddev/` directory, `sbx run claude` checks at every start that DDEV is in the sandbox and installs it when missing, showing each step.
 - `claude` without arguments in a git repository asks whether to start it with `sbx run claude` instead of on the host.
 
-The hook keeps that copy up to date. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off and keep the hook from adding the line.
+The hook keeps that copy up to date, and the launcher reloads it when it changes, so terminals opened before an update use the new version too. Set `AGENT_ISOLATION_LAUNCHER=off` to turn both off and keep the hook from adding the line.
 
 ## Status line (optional)
 
@@ -106,10 +107,10 @@ Then add `"refreshInterval": 1` to `statusLine` in `~/.claude/settings.json`, so
 
 ## Troubleshooting
 
-- **`sbx run claude` does not print `🔌 Installing…`**: the launcher is not loaded in that shell. `type sbx` should say `sbx is a function`. Open a new terminal, or check that `~/.bashrc` (or `~/.zshrc`) has the `agent-isolation/launcher.sh` line. A Claude Code session still running an older plugin version could rewrite the launcher copy with its own: since 0.8.1 a newer copy is kept, so restart sessions started before an update.
+- **`sbx run claude` does not print `🔌 Installing…`**: the launcher is not loaded in that shell. `type sbx` should say `sbx is a function`. Open a new terminal, or check that `~/.bashrc` (or `~/.zshrc`) has the `agent-isolation/launcher.sh` line. Terminals opened before 0.8.3 keep the launcher they loaded at startup: open a new one once. A Claude Code session still running an older plugin version could rewrite the launcher copy with its own: since 0.8.1 a newer copy is kept, so restart sessions started before an update.
 - **`⚠️  Could not install it`**: the sandbox clones this repository over HTTPS without credentials, so it must be public (a fork must be public too). To see the error, run the install by hand: `sbx exec claude-<project> -- claude plugin marketplace add https://github.com/silvanoalda/agent-isolation.git`. The launcher tries again at the next `sbx run claude`.
 - **`⚠️  Could not find sandbox …`**: the launcher looks the sandbox up with `sbx ls --json` and `jq`. Install `jq` on the host, or install the plugin by hand with the command above.
-- **DDEV is missing in the sandbox**: check that the plugin is there (`sbx exec claude-<project> -- claude plugin list`) and that the project has a `.ddev/` directory, then start a new session.
+- **DDEV is missing in the sandbox**: check that the project has a `.ddev/` directory and run `sbx run claude` again, the launcher shows each step of the install. Without the launcher, check that the plugin is in the sandbox (`sbx exec claude-<project> -- claude plugin list`), then start a new session.
 
 ## License
 
