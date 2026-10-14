@@ -48,8 +48,12 @@ cat >"$fakes/sbx" <<'EOF'
 case "$*" in
     "run claude -d") printf 'progress line\n%s\n' "${FAKE_SBX_ID-4d390e74-13f0}" ;;
     "ls --json")
-        printf '{"sandboxes":[{"name":"claude-other","id":"0000"},{"name":"claude-proj","id":"%s"}]}\n' \
-            "${FAKE_SBX_ID-4d390e74-13f0}" ;;
+        list="$(printf '[{"name":"claude-other","id":"0000"},{"name":"claude-proj","id":"%s"}]' \
+            "${FAKE_SBX_LS_ID:-${FAKE_SBX_ID-4d390e74-13f0}}")"
+        case "${FAKE_SBX_LS_FORMAT:-array}" in
+            array) printf '%s\n' "$list" ;;
+            object) printf '{"sandboxes":%s}\n' "$list" ;;
+        esac ;;
     exec*) exit "${FAKE_SBX_EXEC:-0}" ;;
 esac
 exit 0
@@ -621,6 +625,18 @@ extra_env=(FAKE_SBX_EXEC=1)
 run_sbx_launcher "run claude"
 assert_contains "$(cat "$t/out")" "Could not install it" "failure shown"
 assert_contains "$sbx_log" "$(printf 'exec claude-proj --\nrun claude')" "still attaches"
+assert_eq "$(ls "$t/cfg/agent-isolation/sandboxes" 2>/dev/null)" "" "no marker"
+
+setup "sbx launcher, sbx ls in the older object format"
+extra_env=(FAKE_SBX_LS_FORMAT=object)
+run_sbx_launcher "run claude"
+assert_contains "$sbx_log" "$(printf 'exec claude-proj --\nrun claude')" "installs and attaches"
+
+setup "sbx launcher, sandbox not listed"
+extra_env=(FAKE_SBX_LS_ID=ffff)
+run_sbx_launcher "run claude"
+assert_contains "$(cat "$t/out")" "Could not find sandbox 4d390e74-13f0" "failure shown"
+assert_eq "$sbx_log" "$(printf 'run claude -d\nls --json\nrun claude')" "no install, still attaches"
 assert_eq "$(ls "$t/cfg/agent-isolation/sandboxes" 2>/dev/null)" "" "no marker"
 
 setup "sbx launcher, unexpected detached output"

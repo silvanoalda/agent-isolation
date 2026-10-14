@@ -20,10 +20,13 @@ _agent_isolation_sbx_claude() {
     id="$(command sbx run claude -d </dev/null 2>/dev/null | tail -n 1)"
     case "$id" in "" | *[!0-9a-f-]*) id="" ;; esac
     # A recreated sandbox gets a new id, so the marker never hides a missing plugin.
-    if [ -n "$id" ] && [ ! -e "$done_dir/$id" ] && command -v jq >/dev/null 2>&1; then
-        name="$(command sbx ls --json 2>/dev/null \
-            | jq -r --arg id "$id" '.sandboxes[]? | select(.id == $id) | .name' 2>/dev/null)"
-        if [ -n "$name" ]; then
+    if [ -n "$id" ] && [ ! -e "$done_dir/$id" ]; then
+        # sbx ls --json prints a bare array; older sbx versions wrapped it in {"sandboxes": [...]}.
+        command -v jq >/dev/null 2>&1 && name="$(command sbx ls --json 2>/dev/null \
+            | jq -r --arg id "$id" '(.sandboxes? // .)[]? | select(.id == $id) | .name' 2>/dev/null)"
+        if [ -z "$name" ]; then
+            printf '⚠️  Could not find sandbox %s (needs jq and sbx ls --json), the session starts without the plugin.\n' "$id"
+        else
             printf '🔌 Installing the agent-isolation plugin in sandbox %s...\n' "$name"
             # HTTPS: the sandbox has no SSH access to GitHub.
             if command sbx exec "$name" -- sh -c 'export PATH="$HOME/.local/bin:$HOME/.claude/local:$PATH"
