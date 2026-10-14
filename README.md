@@ -21,6 +21,12 @@ claude plugin install agent-isolation@agent-isolation
 
 Or `/plugin marketplace add …` and `/plugin install …` from inside Claude Code.
 
+## Quick start
+
+1. Install the plugin on the host (above).
+2. Start `claude` once on the host, in any project. The warning shows how to install sbx when it is missing, and adds the [launcher](#launcher) to your shell rc file once sbx is there.
+3. Open a new terminal and, from the project directory, run `sbx run claude`. The first time, it installs the plugin in the project's sandbox (`🔌 Installing the agent-isolation plugin in sandbox …`), then starts the session. When the project has a `.ddev/` directory, the plugin installs DDEV there at that first start: run `ddev start` afterwards.
+
 ### Inside sbx
 
 Each sbx sandbox has its own Claude Code configuration, so the plugin installed on the host is not there. It must be installed in the sandbox for the daily refresh and the DDEV install to run.
@@ -97,6 +103,13 @@ Then add `"refreshInterval": 1` to `statusLine` in `~/.claude/settings.json`, so
 | `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher (prompt and plugin install in sbx) |
 | `AGENT_ISOLATION_UPDATE_CHECK` | unset | `off` disables the daily check for a newer plugin version |
 | `DDEV_INSTALL_DIR` | `/usr/local/bin` | Where DDEV is installed inside sbx |
+
+## Troubleshooting
+
+- **`sbx run claude` does not print `🔌 Installing…`**: the launcher is not loaded in that shell. `type sbx` should say `sbx is a function`. Open a new terminal, or check that `~/.bashrc` (or `~/.zshrc`) has the `agent-isolation/launcher.sh` line. A Claude Code session still running an older plugin version could rewrite the launcher copy with its own: since 0.8.1 a newer copy is kept, so restart sessions started before an update.
+- **`⚠️  Could not install it`**: the sandbox clones this repository over HTTPS without credentials, so it must be public (a fork must be public too). To see the error, run the install by hand: `sbx exec claude-<project> -- claude plugin marketplace add https://github.com/silvanoalda/agent-isolation.git`. The launcher tries again at the next `sbx run claude`.
+- **`⚠️  Could not find sandbox …`**: the launcher looks the sandbox up with `sbx ls --json` and `jq`. Install `jq` on the host, or install the plugin by hand with the command above.
+- **DDEV is missing in the sandbox**: check that the plugin is there (`sbx exec claude-<project> -- claude plugin list`) and that the project has a `.ddev/` directory, then start a new session.
 
 ## License
 

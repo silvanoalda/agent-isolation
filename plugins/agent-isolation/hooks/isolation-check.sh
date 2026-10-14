@@ -211,8 +211,8 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
         for f in $rc_files; do
             grep -qsF 'agent-isolation/launcher.sh' "$HOME/$f" && continue
             # A read-only rc file (e.g. managed by Nix or a dotfiles store): show the line instead.
-            if printf '\n# agent-isolation plugin: `sbx run claude` installs it in the sandbox, `claude` offers sbx.\nif [ -f "%s" ]; then . "%s"; fi\n' \
-                "$launcher" "$launcher" >>"$HOME/$f" 2>/dev/null; then
+            if { printf '\n# agent-isolation plugin: `sbx run claude` installs it in the sandbox, `claude` offers sbx.\nif [ -f "%s" ]; then . "%s"; fi\n' \
+                "$launcher" "$launcher" >>"$HOME/$f"; } 2>/dev/null; then
                 rc_added+=" ~/$f"
             else
                 rc_hint=1
