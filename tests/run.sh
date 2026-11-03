@@ -230,9 +230,7 @@ setup "sbx, stale analysis, no claude"
 path_variant="no_claude"
 extra_env=(SANDBOX_NAME=test)
 run_hook
-assert_json
-assert_contains "$(msg)" "Daily refresh" "sbx fallback message"
-assert_contains "$(ctx)" "Daily task" "sbx fallback context"
+assert_eq "$code" 0 "exit"; assert_silent
 
 sources() { grep -c 'agent-isolation/launcher.sh' "$1" 2>/dev/null; }
 
@@ -463,13 +461,8 @@ setup "analyse, sbx"
 extra_env=(SANDBOX_NAME=test)
 run_hook analyse
 assert_eq "$code" 0 "exit, no wake-up inside sbx"; assert_silent
-assert_contains "$(cat "$FAKE_LOG")" "--model sonnet" "analysis still refreshed for the host warning"
-assert_eq "$([ -s "$risks" ] && echo written)" written "file written"
-
-setup "analyse, sbx, failure"
-extra_env=(SANDBOX_NAME=test FAKE_CLAUDE=fail)
-run_hook analyse
-assert_eq "$code" 0 "exit"; assert_silent
+assert_eq "$(wc -c <"$FAKE_LOG" | tr -d ' ')" 0 "claude not called"
+assert_eq "$([ -e "$risks" ] && echo exists)" "" "no file written for the host"
 
 setup "analyse, no claude"
 path_variant="no_claude"
@@ -901,6 +894,7 @@ assert_contains "$(cat "$t/err")" "jq is required" "message"
 fake_sessions() {
     mkdir -p "$t/cfg/projects/$(slug_of "$proj")"
     for i in $(seq 1 "$1"); do : >"$t/cfg/projects/$(slug_of "$proj")/x$i.jsonl"; done
+    touch -d '10 minutes ago' "$t/cfg/projects/$(slug_of "$proj")"/x*.jsonl  # the session starting now is not counted
 }
 
 setup "retro reminder, never run"
