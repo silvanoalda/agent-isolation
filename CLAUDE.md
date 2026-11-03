@@ -32,6 +32,11 @@ Claude Code plugin shipped as a single-plugin marketplace. User docs are in READ
 - `plugins/agent-isolation/statusline.sh`: opt-in status line segment, copied by the hook to
   `~/.claude/agent-isolation/statusline.sh`. It prints a spinner while the `analyse` run holds
   its lock (`$TMPDIR/agent-isolation-<cksum of project dir>.lock`), so keep both paths in sync.
+- `plugins/agent-isolation/skills/retro/`: the `/agent-isolation:retro` skill. `digest.sh` (bash and
+  jq) turns this project's transcripts (`~/.claude/projects/<path with non alphanumerics as ->`,
+  worktree dirs and subagents) into a capped, redacted digest; `SKILL.md` has Claude rank the
+  findings, write `.claude/retro.local.md` and apply only the fixes the developer picks. The main
+  run shows a `📊` reminder when that report is old and 5+ sessions happened since.
 - `kit/spec.yaml`: sbx mixin kit for users without the launcher, installing the plugin in a
   sandbox (`sbx run claude --kit` on creation, `sbx kit add` on an existing one), since
   sandboxes do not share the host's `~/.claude`. It uses `setup.install`, because `kit add` rejects `setup.startup`.
@@ -43,11 +48,11 @@ run prints nothing on stdout and exits 2 with a message for Claude on stderr, or
 
 ```bash
 claude plugin validate . && claude plugin validate plugins/agent-isolation
-bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh plugins/agent-isolation/statusline.sh
+bash -n plugins/agent-isolation/hooks/isolation-check.sh plugins/agent-isolation/launcher.sh plugins/agent-isolation/statusline.sh plugins/agent-isolation/skills/retro/digest.sh
 bash tests/run.sh
 ```
 
-`tests/run.sh` covers the hook (main and `analyse` runs) and the launcher with fake `claude`
+`tests/run.sh` covers the hook (main and `analyse` runs), the retro digest and the launcher with fake `claude`
 and `sbx` binaries, so it needs no login or network. Add a case there for every behaviour
 change. CI (`.github/workflows/test.yml`) runs the same three steps on every push.
 Not covered: the real DDEV download (the fake `sbx exec -i` only captures the script), the interactive launcher prompt and the kit

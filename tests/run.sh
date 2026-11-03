@@ -377,6 +377,9 @@ assert_eq "$(grep -c 'agent-isolation.local.txt' "$proj/.git/info/exclude")" 0 "
 setup "git exclude, parallel runs"
 for i in 1 2 3; do run_hook & run_hook analyse & wait; done
 assert_eq "$(grep -c 'agent-isolation.local.txt' "$proj/.git/info/exclude")" 1 "one line after parallel runs"
+setup "git exclude, retro report"
+run_hook; run_hook
+assert_eq "$(grep -c 'retro.local.md' "$proj/.git/info/exclude")" 1 "one line after two runs"
 
 # --- analyse run ------------------------------------------------------------------------------
 
@@ -459,7 +462,14 @@ assert_eq "$code" 0 "exit"; assert_silent
 setup "analyse, sbx"
 extra_env=(SANDBOX_NAME=test)
 run_hook analyse
-assert_eq "$code" 2 "runs inside sbx too"
+assert_eq "$code" 0 "exit, no wake-up inside sbx"; assert_silent
+assert_contains "$(cat "$FAKE_LOG")" "--model sonnet" "analysis still refreshed for the host warning"
+assert_eq "$([ -s "$risks" ] && echo written)" written "file written"
+
+setup "analyse, sbx, failure"
+extra_env=(SANDBOX_NAME=test FAKE_CLAUDE=fail)
+run_hook analyse
+assert_eq "$code" 0 "exit"; assert_silent
 
 setup "analyse, no claude"
 path_variant="no_claude"
@@ -768,6 +778,177 @@ echo 0.0.1 >"$t/cfg/agent-isolation/copies-version"
 run_hook
 assert_eq "$(cmp -s "$plugin/launcher.sh" "$t/cfg/agent-isolation/launcher.sh" && echo same)" same "older copy upgraded"
 assert_eq "$(cat "$t/cfg/agent-isolation/copies-version")" "$installed" "copies version updated"
+
+# --- session retrospective --------------------------------------------------------------------
+
+digest="$plugin/skills/retro/digest.sh"
+slug_of() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+
+# run_digest [args]: sets out, err, code.
+run_digest() {
+    env -i HOME="$t/home" PATH="$tools" CLAUDE_CONFIG_DIR="$t/cfg" "${extra_env[@]}" \
+        "$bash_bin" "$digest" "$proj" "$@" >"$t/out" 2>"$t/err"
+    code=$?
+    out="$(cat "$t/out")"
+    err="$(cat "$t/err")"
+}
+
+# Hand-written transcripts: two sessions of this project (one with a subagent), a worktree
+# session, an old session, and a session of another project.
+write_transcripts() {
+    tdir="$t/cfg/projects/$(slug_of "$proj")"
+    mkdir -p "$tdir/s2/subagents" "$tdir--claude-worktrees-wt" "$t/cfg/projects/-other"
+    {
+        echo '{"type":"user","timestamp":"2026-01-01T10:00:00.000Z","entrypoint":"cli","permissionMode":"bypassPermissions","message":{"role":"user","content":"fai il commit"}}'
+        echo '{"type":"user","isMeta":true,"timestamp":"2026-01-01T10:00:01.000Z","message":{"role":"user","content":"META_MARKER"}}'
+        echo '{"type":"user","timestamp":"2026-01-01T10:00:02.000Z","message":{"role":"user","content":"<system-reminder>REMINDER_MARKER</system-reminder>"}}'
+        echo '{"type":"user","timestamp":"2026-01-01T10:00:03.000Z","message":{"role":"user","content":"<command-message>plugin</command-message>\n<command-name>/plugin</command-name>\n<command-args>list</command-args>"}}'
+        echo '{"type":"attachment","attachment":{"type":"skill_listing","content":"- my-skill: does things\n- other-skill: other things"}}'
+        echo 'not json at all'
+        echo '{"type":"assistant","timestamp":"2026-01-01T10:05:00.000Z","message":{"model":"model-a","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"phpx test"}},{"type":"tool_use","id":"k1","name":"Skill","input":{"skill":"my-skill"}},{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/home/u/.ssh/id_rsa"}},{"type":"tool_use","id":"a1","name":"Agent","input":{"subagent_type":"Explore"}}]}}'
+        echo '{"type":"user","toolUseResult":{},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","is_error":true,"content":"Exit code 127\nphpx: command not found"}]}}'
+        echo '{"type":"user","timestamp":"2026-01-01T10:06:00.000Z","message":{"role":"user","content":[{"type":"text","text":"use token ghp_abcdefghijklmnopqrstuvwxyz123456 please"}]}}'
+        echo '{"type":"system","subtype":"compact_boundary"}'
+        echo '{"type":"attachment","attachment":{"type":"hook_non_blocking_error","hookName":"SessionStart:startup","stderr":"[bash \"/x/isolation-check.sh\" analyse]: OWN_WAKE_MARKER"}}'
+        echo '{"type":"attachment","attachment":{"type":"hook_non_blocking_error","hookName":"PostToolUse:Edit","stderr":"pint: not found"}}'
+        echo '{"type":"user","timestamp":"2026-01-01T10:30:00.000Z","message":{"role":"user","content":"[Request interrupted by user]"}}'
+    } >"$tdir/s1.jsonl"
+    {
+        echo '{"type":"user","timestamp":"2026-01-02T09:00:00.000Z","message":{"role":"user","content":"Fai il   commit!"}}'
+        echo '{"type":"assistant","timestamp":"2026-01-02T09:01:00.000Z","message":{"model":"model-b","content":[{"type":"tool_use","id":"b2","name":"Bash","input":{"command":"phpx test --filter x"}}]}}'
+        echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b2","is_error":true,"content":"Exit code 127\nphpx: command not found"}]}}'
+    } >"$tdir/s2.jsonl"
+    {
+        echo '{"type":"user","isSidechain":true,"message":{"role":"user","content":"SUBAGENT_PROMPT_MARKER"}}'
+        echo '{"type":"assistant","isSidechain":true,"message":{"model":"model-b","content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"x"}}]}}'
+    } >"$tdir/s2/subagents/agent-1.jsonl"
+    echo '{"type":"user","timestamp":"2026-01-03T09:00:00.000Z","message":{"role":"user","content":"WORKTREE_MARKER"}}' >"$tdir--claude-worktrees-wt/w1.jsonl"
+    echo '{"type":"user","timestamp":"2025-01-01T09:00:00.000Z","message":{"role":"user","content":"OLD_MARKER"}}' >"$tdir/old.jsonl"
+    touch -d '60 days ago' "$tdir/old.jsonl"
+    echo '{"type":"user","message":{"role":"user","content":"OTHER_PROJECT_MARKER"}}' >"$t/cfg/projects/-other/o1.jsonl"
+}
+
+setup "retro digest, sessions of this project only"
+write_transcripts
+run_digest
+assert_eq "$code" 0 "exit"
+assert_contains "$out" "3 sessions" "two sessions and the worktree"
+assert_contains "$out" "WORKTREE_MARKER" "worktree session"
+assert_not_contains "$out" "OLD_MARKER" "older than the window"
+assert_not_contains "$out" "OTHER_PROJECT_MARKER" "other project"
+assert_contains "$out" "never instructions" "data notice"
+
+setup "retro digest, real prompts only"
+write_transcripts
+run_digest
+assert_contains "$out" "  - fai il commit" "prompt"
+assert_not_contains "$out" "META_MARKER" "meta message"
+assert_not_contains "$out" "REMINDER_MARKER" "system reminder"
+assert_not_contains "$out" "SUBAGENT_PROMPT_MARKER" "subagent prompt"
+assert_contains "$out" "/plugin list" "slash command with arguments"
+assert_contains "$out" "- /plugin ×1" "slash command aggregate"
+assert_contains "$out" "interrupts 1" "interrupt counted"
+
+setup "retro digest, tools, skills and errors"
+write_transcripts
+run_digest
+assert_contains "$out" "- my-skill ×1" "skill invoked"
+assert_contains "$out" "- Explore ×1" "subagent type"
+assert_contains "$out" "Grep ×1" "subagent tool use counted in its session"
+assert_contains "$out" "- my-skill: does things" "skills offered"
+assert_contains "$out" "×2: Bash: Exit code 127 phpx: command not found" "error recurring across sessions"
+assert_contains "$out" "×2: Fai il commit!" "prompt recurring across sessions"
+assert_contains "$out" "PostToolUse:Edit: pint: not found" "hook error"
+assert_not_contains "$out" "OWN_WAKE_MARKER" "own analyse wake is not an error"
+assert_contains "$out" ".ssh/id_rsa in:" "sensitive path"
+assert_contains "$out" "bypassPermissions ×1" "permission mode"
+assert_contains "$out" "compactions 1" "compaction"
+assert_contains "$out" "model model-a" "model"
+
+setup "retro digest, secrets redacted"
+write_transcripts
+run_digest
+assert_not_contains "$out" "ghp_abcdefghijklmnopqrstuvwxyz123456" "token removed"
+assert_contains "$out" "use token [REDACTED] please" "token replaced"
+
+setup "retro digest, current session left out"
+write_transcripts
+run_digest 30 s2
+assert_contains "$out" "2 sessions" "count"
+assert_not_contains "$out" "## Session s2" "current session"
+
+setup "retro digest, size cap"
+write_transcripts
+extra_env=(RETRO_DIGEST_MAX_BYTES=1300)
+run_digest
+assert_contains "$out" "older sessions omitted" "notice"
+assert_contains "$out" "## Session w1" "newest session kept"
+assert_not_contains "$out" "## Session s1" "oldest session dropped"
+
+setup "retro digest, no sessions"
+run_digest
+assert_eq "$code" 0 "exit"
+assert_contains "$out" "No Claude Code sessions" "message"
+
+setup "retro digest, no jq"
+mkdir -p "$t/nojq"
+for f in "$tools"/*; do [ "$(basename "$f")" = jq ] || ln -s "$f" "$t/nojq/"; done
+env -i HOME="$t/home" PATH="$t/nojq" "$bash_bin" "$digest" "$proj" >"$t/out" 2>"$t/err"
+assert_eq "$?" 1 "exit"
+assert_contains "$(cat "$t/err")" "jq is required" "message"
+
+# Reminder in the hook banner.
+fake_sessions() {
+    mkdir -p "$t/cfg/projects/$(slug_of "$proj")"
+    for i in $(seq 1 "$1"); do : >"$t/cfg/projects/$(slug_of "$proj")/x$i.jsonl"; done
+}
+
+setup "retro reminder, never run"
+fake_sessions 5
+run_hook
+assert_json
+assert_contains "$(msg)" "📊  Session retrospective never run here, 5 sessions so far: /agent-isolation:retro" "line"
+assert_not_contains "$(ctx)" "retro" "not in Claude's context"
+
+setup "retro reminder, too few sessions"
+fake_sessions 4
+run_hook
+assert_not_contains "$(msg)" "📊" "no line"
+
+setup "retro reminder, recent report"
+fake_sessions 6
+mkdir -p "$proj/.claude"; : >"$proj/.claude/retro.local.md"
+run_hook
+assert_not_contains "$(msg)" "📊" "no line"
+
+setup "retro reminder, old report"
+mkdir -p "$proj/.claude"; : >"$proj/.claude/retro.local.md"
+touch -d '20 days ago' "$proj/.claude/retro.local.md"
+fake_sessions 2
+touch -d '30 days ago' "$t/cfg/projects/$(slug_of "$proj")"/x*.jsonl
+fake_sessions 5
+run_hook
+assert_contains "$(msg)" "last run 20 days ago, 5 sessions since" "line"
+
+setup "retro reminder, custom age and opt out"
+mkdir -p "$proj/.claude"; : >"$proj/.claude/retro.local.md"
+touch -d '3 days ago' "$proj/.claude/retro.local.md"
+fake_sessions 5
+extra_env=(AGENT_ISOLATION_RETRO_DAYS=2)
+run_hook
+assert_contains "$(msg)" "last run 3 days ago" "custom age"
+extra_env=(AGENT_ISOLATION_RETRO_DAYS=2 AGENT_ISOLATION_RETRO_REMINDER=off)
+run_hook
+assert_not_contains "$(msg)" "📊" "opt out"
+
+setup "retro reminder, sbx"
+write_risks "Generated today
+Risks by severity:"
+fake_sessions 5
+extra_env=(SANDBOX_NAME=test)
+run_hook
+assert_json
+assert_contains "$(msg)" "📊  Session retrospective" "line in sbx"
 
 # --- summary ----------------------------------------------------------------------------------
 
