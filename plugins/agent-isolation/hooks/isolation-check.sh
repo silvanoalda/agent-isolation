@@ -23,15 +23,17 @@ risks_rel=".claude/agent-isolation.local.txt"
 risks_file="$project_dir/$risks_rel"
 risks_max_age="${AGENT_ISOLATION_MAX_AGE_MINUTES:-1440}"
 
-# Keep the cache out of git without touching the project's .gitignore. Only the main run does
-# it, so the parallel analyse run cannot append the same line twice.
+# Keep the cache and the retro report out of git without touching the project's .gitignore.
+# Only the main run does it, so the parallel analyse run cannot append the same line twice.
 exclude_file=""
 [ "${1:-}" = "analyse" ] || exclude_file="$(git -C "$project_dir" rev-parse --git-path info/exclude 2>/dev/null)"
 if [ -n "$exclude_file" ]; then
     case "$exclude_file" in /*) ;; *) exclude_file="$project_dir/$exclude_file" ;; esac
-    if ! grep -qxF 'agent-isolation.local.txt' "$exclude_file" 2>/dev/null; then
-        mkdir -p "$(dirname "$exclude_file")" && printf 'agent-isolation.local.txt\n' >>"$exclude_file"
-    fi
+    for name in agent-isolation.local.txt retro.local.md; do
+        if ! grep -qxF "$name" "$exclude_file" 2>/dev/null; then
+            mkdir -p "$(dirname "$exclude_file")" && printf '%s\n' "$name" >>"$exclude_file"
+        fi
+    done
 fi
 
 # A committed copy was not written by Claude on this machine and may come from anyone with
@@ -143,6 +145,9 @@ refresh_task="refresh $analysis_task Overwrite $risks_rel with the Write tool, t
 if [ "${1:-}" = "analyse" ]; then
     { [ -z "${SANDBOX_NAME:-}" ] && in_other_container; } && exit 0
     check_update  # shown by the main run at the next start, never wakes Claude on its own
+    # The analysis is about the host: sbx neither shows nor writes it (the project directory is
+    # shared, so a file written there would pass for the host's own).
+    [ -n "${SANDBOX_NAME:-}" ] && exit 0
     { risks_fresh || [ -n "$risks_tracked" ]; } && exit 0
     command -v claude >/dev/null 2>&1 || exit 0  # the main run asks Claude in the session instead
     # One run per project at a time (several sessions may start together); stale locks expire.
@@ -162,11 +167,36 @@ if [ "${1:-}" = "analyse" ]; then
     exit 2
 fi
 
+# Session retrospective reminder: shown to the developer only (Claude must not nag about it) when
+# the last report is older than AGENT_ISOLATION_RETRO_DAYS and enough sessions happened since.
+retro_line=""
+retro_file="$project_dir/.claude/retro.local.md"
+retro_days="${AGENT_ISOLATION_RETRO_DAYS:-14}"
+case "$retro_days" in "" | *[!0-9]*) retro_days=14 ;; esac
+[ "$retro_days" -ge 1 ] || retro_days=1  # find -mtime -0 matches nothing
+if [ "${AGENT_ISOLATION_RETRO_REMINDER:-}" != "off" ] \
+    && { [ ! -f "$retro_file" ] || [ -z "$(find "$retro_file" -mtime "-$retro_days" 2>/dev/null)" ]; }; then
+    transcripts="$config_dir/projects/$(printf '%s' "$project_dir" | sed 's/[^A-Za-z0-9]/-/g')"
+    if [ -f "$retro_file" ]; then
+        # -mmin +5 leaves out the session starting now.
+        new_sessions="$(find "$transcripts" -maxdepth 1 -name '*.jsonl' -newer "$retro_file" -mmin +5 2>/dev/null | wc -l | tr -d ' ')"
+        retro_mtime="$(date -r "$retro_file" +%s 2>/dev/null)"
+        case "$retro_mtime" in "" | *[!0-9]*) retro_when="last run more than $retro_days days ago, $new_sessions sessions since" ;;
+            *) retro_when="last run $(( ($(date +%s) - retro_mtime) / 86400 )) days ago, $new_sessions sessions since" ;;
+        esac
+    else
+        new_sessions="$(find "$transcripts" -maxdepth 1 -name '*.jsonl' -mmin +5 2>/dev/null | wc -l | tr -d ' ')"
+        retro_when="never run here, $new_sessions sessions so far"
+    fi
+    [ "${new_sessions:-0}" -ge 5 ] \
+        && retro_line="📊  Session retrospective $retro_when: /agent-isolation:retro\n"
+fi
+
 # The main run only reads the cached analysis. Without claude on PATH the background run cannot
 # generate it, so ask Claude to do it in the session after the first prompt.
 refresh_context=""
 risks_pending=""
-if ! risks_fresh && [ -z "$risks_tracked" ]; then
+if [ -z "${SANDBOX_NAME:-}" ] && ! risks_fresh && [ -z "$risks_tracked" ]; then
     if command -v claude >/dev/null 2>&1; then
         risks_pending=1
     else
@@ -303,6 +333,7 @@ if [ -z "${SANDBOX_NAME:-}" ]; then
     [ -n "$risks_pending" ] && msg+="$gap🔄  Isolation risk analysis running in the background: Claude shows it here shortly.\n"
     [ -n "$refresh_context" ] && msg+="$gap🔄  Analysis missing or older than a day: Claude refreshes it after your first message.\n"
     [ -n "$update_line" ] && msg+="\n$update_line"
+    [ -n "$retro_line" ] && msg+="\n$retro_line"
     if [ -n "$sbx_installable" ]; then
         msg+="\n👉  Install sbx (below), then exit (/exit) and restart isolated from the project directory:\n"
         msg+="\n        ▶  sbx run claude\n"
@@ -332,7 +363,7 @@ fi
 if [ ! -d "$project_dir/.ddev" ] || command -v ddev >/dev/null 2>&1; then
     sbx_msg=""
     [ -n "$refresh_context" ] && sbx_msg="🔄 Daily refresh of the agent isolation risk analysis ($risks_rel).\n"
-    sbx_msg+="$update_line"
+    sbx_msg+="$update_line$retro_line"
     sbx_context="$refresh_context$update_context"
     [ -n "$sbx_msg" ] && emit "$sbx_msg" "${sbx_context# }"
     exit 0
@@ -342,10 +373,10 @@ log="$(mktemp -t ddev-install.XXXXXX.log)"
 
 # Fallback when the launcher did not install DDEV before the session (kit, or sbx run without it).
 if bash "${CLAUDE_PLUGIN_ROOT:-}/install-ddev.sh" >"$log" 2>&1 </dev/null; then
-    emit "DDEV was missing in sbx and has been installed ($(tail -1 "$log" | sed 's/^installed //')). Run: ddev start, then /mcp to reconnect MCP servers that run through ddev.${update_line:+\n$update_line}" \
+    emit "DDEV was missing in sbx and has been installed ($(tail -1 "$log" | sed 's/^installed //')). Run: ddev start, then /mcp to reconnect MCP servers that run through ddev.${update_line:+\n$update_line}${retro_line:+\n$retro_line}" \
         "DDEV was just installed in sbx. MCP servers that run through ddev may have failed to connect at startup; suggest ddev start and /mcp to reconnect.$refresh_context$update_context"
 else
-    emit "DDEV is not installed in sbx and automatic installation failed (log: $log). Install it manually from https://github.com/ddev/ddev/releases into /usr/local/bin.${update_line:+\n$update_line}" \
+    emit "DDEV is not installed in sbx and automatic installation failed (log: $log). Install it manually from https://github.com/ddev/ddev/releases into /usr/local/bin.${update_line:+\n$update_line}${retro_line:+\n$retro_line}" \
         "DDEV is missing in sbx and automatic installation failed (log: $log). Commands that run through ddev will not work until DDEV is installed.$refresh_context$update_context"
 fi
 exit 0

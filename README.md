@@ -93,6 +93,23 @@ seg="$(printf '%s' "$input" | ~/.claude/agent-isolation/statusline.sh 2>/dev/nul
 
 Then add `"refreshInterval": 1` to `statusLine` in `~/.claude/settings.json`, so the status line is redrawn every second while the session is idle. Plugins cannot set the status line themselves, which is why this step is manual.
 
+## Session retrospective
+
+Type `/agent-isolation:retro` (optionally followed by a number of days, 30 by default) to review this project's past Claude Code sessions. A script reads the transcripts of this project in `~/.claude/projects` (including Claude Code worktrees and subagents) and builds a compact digest: real prompts, tool use, errors, skills, subagents and sensitive paths, with tokens redacted. Claude never reads the raw transcripts. From that digest Claude looks for:
+
+- prompts you repeat across sessions, which could become a skill or command,
+- skills never used, overlapping, or not firing when they should,
+- CLAUDE.md rules you keep repeating, or that are out of date,
+- tool, MCP and hook errors that come back, and missing tools,
+- wasted work (the same command or file over and over, long sessions with compactions),
+- security anomalies (`.ssh`, `.env` or keys touched, `bypassPermissions`, secrets in prompts).
+
+Findings are ranked by frequency, impact and ease of the fix, and saved in `.claude/retro.local.md` (kept out of git). Claude then asks which fixes to apply and changes only those. Files outside the project, such as `~/.claude/CLAUDE.md`, need a separate yes. It never commits.
+
+Only the sessions of the environment it runs in are analysed: on the host it sees host sessions, inside sbx it sees the sandbox's own sessions. Permission prompts are left to the built in `fewer-permission-prompts` skill.
+
+At session start a `📊` line reminds you when the last retrospective is older than 14 days and at least 5 sessions happened since. It needs `jq`.
+
 ## Settings (environment variables)
 
 | Variable | Default | Effect |
@@ -103,6 +120,8 @@ Then add `"refreshInterval": 1` to `statusLine` in `~/.claude/settings.json`, so
 | `AGENT_ISOLATION_ANALYSIS_TIMEOUT` | `150` | Seconds before the background analysis gives up and falls back to the session |
 | `AGENT_ISOLATION_LAUNCHER` | unset | `off` disables the launcher (prompt and plugin install in sbx) |
 | `AGENT_ISOLATION_UPDATE_CHECK` | unset | `off` disables the daily check for a newer plugin version |
+| `AGENT_ISOLATION_RETRO_DAYS` | `14` | Age of the last retrospective after which the `📊` reminder appears |
+| `AGENT_ISOLATION_RETRO_REMINDER` | unset | `off` disables the retrospective reminder |
 | `DDEV_INSTALL_DIR` | `/usr/local/bin` | Where DDEV is installed inside sbx |
 
 ## Troubleshooting
